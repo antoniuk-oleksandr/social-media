@@ -39,6 +39,18 @@ The domain and service layers define interfaces. Infrastructure packages impleme
 
 Application configuration follows an environment-based Go configuration approach. Feature packages receive typed configuration through constructors and must not read environment variables or SSM parameters directly.
 
+### Local DynamoDB configuration
+
+Manual local development uses the Compose service in `infra/local/docker-compose.yaml`.
+
+```text
+Host process:       DYNAMODB_ENDPOINT=http://127.0.0.1:8000
+Docker network:     DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+Docker network:     social-media-local (dedicated local-development network)
+```
+
+The local endpoint is a non-secret development override. Production configuration must continue to use AWS DynamoDB and must not use the local endpoint. Integration tests use Testcontainers rather than requiring this Compose stack to be running.
+
 Configuration responsibilities are split as follows:
 
 - `internal/platform/config` defines typed configuration structs, environment variable names, parsing, defaults, and validation.

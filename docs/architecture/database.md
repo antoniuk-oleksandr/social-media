@@ -5,6 +5,20 @@
 ## Database decisions
 
 - Database: Amazon DynamoDB.
+
+## Local development
+
+Manual local development runs DynamoDB Local through [`infra/local/docker-compose.yaml`](../../infra/local/docker-compose.yaml). Start it from the repository root:
+
+```bash
+docker compose -f infra/local/docker-compose.yaml up -d
+```
+
+The service is named `dynamodb-local` on the Docker network `social-media-local` and listens on port `8000`. Host processes connect to `http://127.0.0.1:8000`; containers attached to `social-media-local` connect to `http://dynamodb-local:8000`.
+
+The Compose network is dedicated to this local stack and the host port is bound to loopback. The ignored `infra/local/data/` bind mount persists local data between ordinary `down` and `up` operations. Remove that directory only when intentionally deleting local data.
+
+This stack is not a substitute for integration-test isolation. Testcontainers owns the lifecycle of integration-test DynamoDB Local containers and tests must use isolated tables.
 - MVP uses separate logical tables for users, posts, advertisements, and optional feed state.
 - Every feed entity has an entityType value: post or ad.
 - IDs are UUIDv7 strings. API examples may use shortened illustrative IDs, but persisted and accepted resource IDs must be valid UUIDv7 values.

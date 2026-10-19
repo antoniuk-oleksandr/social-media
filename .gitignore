@@ -1,0 +1,5 @@
+# Hermes runtime state: plans, sessions, logs, and temporary agent data.
+.hermes/
+
+# Local DynamoDB data.
+/infra/local/data/

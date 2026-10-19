@@ -1,0 +1,144 @@
+# Project-local Hermes configuration used inside the Compose Hermes container.
+# It is mounted at /opt/data/config.yaml by the setup instructions.
+
+terminal:
+  backend: local
+  cwd: /workspace
+
+delegation:
+  max_concurrent_children: 3
+
+# GitHub project/repository access is provided through MCP. The token is read
+# from /opt/data/.env and is never stored in this repository.
+mcp_servers:
+  github:
+    command: npx
+    args:
+      - -y
+      - '@modelcontextprotocol/server-github'
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_PERSONAL_ACCESS_TOKEN}'
+
+# Keep Slack private and require an explicit mention in channels.
+slack:
+  require_mention: true
+  unauthorized_dm_behavior: ignore
+
+platforms:
+  slack:
+    reply_to_mode: first
+    extra:
+      reply_in_thread: true
+      reply_broadcast: false
+      rich_blocks: true
+      native_task_cards: true
+    enabled: true
+    home_channel:
+      platform: slack
+      chat_id: C0CAAM8FV60
+      name: C0CAAM8FV60
+      user_id: U05HE1Z3MD1
+      scope_id: T05HGJCF4FN
+_config_version: 50
+agent:
+  max_turns: 150
+  reasoning_effort: medium
+model:
+  provider: openai-codex
+  base_url: https://chatgpt.com/backend-api/codex
+  default: gpt-5.6-luna
+computer_use:
+  backend: cua
+platform_toolsets:
+  cli:
+    - browser
+    - clarify
+    - code_execution
+    - computer_use
+    - connections
+    - cronjob
+    - delegation
+    - file
+    - image_gen
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - tts
+    - vision
+    - web
+  slack:
+    - clarify
+    - code_execution
+    - connections
+    - delegation
+    - file
+    - skills
+    - terminal
+    - todo
+known_plugin_toolsets:
+  cli:
+    - a2a
+  slack:
+    - a2a
+known_builtin_toolsets:
+  cli:
+    - browser
+    - clarify
+    - code_execution
+    - computer_use
+    - connections
+    - context_engine
+    - cronjob
+    - delegation
+    - discord
+    - discord_admin
+    - file
+    - image_gen
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - stt
+    - terminal
+    - todo
+    - tts
+    - video
+    - video_gen
+    - vision
+    - web
+    - x_search
+    - yuanbao
+  slack:
+    - browser
+    - clarify
+    - code_execution
+    - computer_use
+    - connections
+    - context_engine
+    - cronjob
+    - delegation
+    - discord
+    - discord_admin
+    - file
+    - image_gen
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - stt
+    - terminal
+    - todo
+    - tts
+    - video
+    - video_gen
+    - vision
+    - web
+    - x_search
+    - yuanbao
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false
+    offer_version: 2

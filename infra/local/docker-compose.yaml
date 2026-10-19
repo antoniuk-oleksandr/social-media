@@ -1,0 +1,47 @@
+name: social-media-local
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: social-media-dynamodb-local
+    command: >-
+      -jar DynamoDBLocal.jar
+      -sharedDb
+      -dbPath /home/dynamodblocal/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/home/dynamodblocal/data
+    networks:
+      - social-media-local
+
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: social-media-hermes
+    profiles:
+      - hermes
+    working_dir: /workspace
+    command:
+      - gateway
+      - run
+    stdin_open: true
+    tty: true
+    depends_on:
+      - dynamodb-local
+    environment:
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+    ports:
+      - "127.0.0.1:8642:8642"
+    volumes:
+      - ../..:/workspace
+      - ${HERMES_DATA_DIR:-${HOME}/.hermes}:/opt/data
+      - ../../.agents/hermes/config.yaml:/opt/data/config.yaml
+    networks:
+      - social-media-local
+    mem_limit: 4g
+    cpus: 2.0
+
+networks:
+  social-media-local:
+    name: social-media-local
