@@ -1,0 +1,11 @@
+package clock
+
+import "time"
+
+type Real struct{}
+
+func (Real) Now() time.Time { return time.Now().UTC() }
+
+type Fixed struct{ T time.Time }
+
+func (f Fixed) Now() time.Time { return f.T }
