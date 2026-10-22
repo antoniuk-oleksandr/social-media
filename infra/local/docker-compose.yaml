@@ -4,6 +4,7 @@ services:
   dynamodb-local:
     image: amazon/dynamodb-local:latest
     container_name: social-media-dynamodb-local
+    restart: unless-stopped
     command: >-
       -jar DynamoDBLocal.jar
       -sharedDb
@@ -16,14 +17,21 @@ services:
       - social-media-local
 
   hermes:
-    image: nousresearch/hermes-agent:latest
+    build:
+      context: ../..
+      dockerfile: infra/local/Dockerfile.hermes
+    image: social-media-hermes:local
     container_name: social-media-hermes
+    restart: unless-stopped
     profiles:
       - hermes
     working_dir: /workspace
     command:
-      - gateway
-      - run
+      - sh
+      - -c
+      - >-
+        /opt/hermes/bin/hermes skills trust /workspace &&
+        exec /opt/hermes/bin/hermes gateway run
     stdin_open: true
     tty: true
     depends_on:
@@ -31,6 +39,7 @@ services:
     environment:
       HERMES_UID: "${HERMES_UID:-1000}"
       HERMES_GID: "${HERMES_GID:-1000}"
+      HERMES_WRITE_SAFE_ROOT: /workspace
     ports:
       - "127.0.0.1:8642:8642"
     volumes:

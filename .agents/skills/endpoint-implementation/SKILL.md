@@ -20,6 +20,7 @@ Read [`api-endpoints.md`](../social-media-mvp/references/api-endpoints.md) for t
 9. Implement the handler with strict JSON decoding, request validation, authentication, request IDs, and explicit domain-error mapping.
 10. Register the route in the feature router and the correct Lambda entry point.
 11. Add unit, integration, and endpoint tests appropriate to the behavior.
+12. Enforce the Fx composition gate: the entry point must use `fx.New` plus `fx.Provide`; do not hand-wire adapters, services, handlers, or routers. If the existing entry point is manual, migrate it as part of the task before adding endpoint behavior.
 
 ## Handler rules
 
@@ -37,3 +38,4 @@ Read [`api-endpoints.md`](../social-media-mvp/references/api-endpoints.md) for t
 - Mappers cover every boundary.
 - Logs contain useful identifiers but no secrets.
 - `go test -race ./...`, formatting, vet, and the relevant coverage checks pass.
+- `go.mod` contains `go.uber.org/fx`, and repository search confirms every touched composition root uses `fx.New` and `fx.Provide`.

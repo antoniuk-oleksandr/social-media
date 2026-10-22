@@ -44,7 +44,7 @@ Application configuration follows an environment-based Go configuration approach
 Manual local development uses the Compose service in `infra/local/docker-compose.yaml`.
 
 ```text
-Host process:       DYNAMODB_ENDPOINT=http://127.0.0.1:8000
+Host process:       DYNAMODB_ENDPOINT=<published-local-dynamodb-endpoint>
 Docker network:     DYNAMODB_ENDPOINT=http://dynamodb-local:8000
 Docker network:     social-media-local (dedicated local-development network)
 ```
@@ -761,28 +761,27 @@ The project uses three test levels:
 
 ### Coverage requirement
 
-Automated tests must maintain at least **90% statement coverage for eligible domain and application service packages**. Coverage is a quality gate, not an optional reporting metric.
+Automated tests must maintain at least **90% combined statement coverage for the complete Go project (`./...`)**. Coverage is a quality gate, not an optional reporting metric.
 
 CI must:
 
 1. Run unit, integration, and relevant E2E test suites.
 2. Generate a combined Go coverage profile.
-3. Report eligible-package coverage and coverage by feature package.
-4. Fail the build when combined eligible-package coverage is below 90%.
-5. Report handler coverage separately.
-6. Do not count integration tests, E2E tests, Lambda bootstrap code, generated code, or Terraform toward the 90% threshold.
-6. Publish the coverage report as a CI artifact.
+3. Report total coverage and coverage by feature/package.
+4. Fail the build when combined project coverage is below 90%.
+5. Publish the coverage report as a CI artifact.
+6. Keep integration, E2E, Terraform, and non-Go files outside the Go statement profile naturally; do not exclude application Go packages merely to raise the percentage.
 
 Coverage should include application services, domain rules, handlers, mappers, repository adapters, and error paths. Generated code and intentionally excluded bootstrap glue may be excluded only when documented in the coverage configuration; exclusions must not be used to hide untested business logic.
 
 Example commands:
 
 ```bash
-go test ./internal/... -coverprofile=coverage.out
+go test ./... -coverprofile=coverage.out
 go tool cover -func=coverage.out
 ```
 
-The CI pipeline should parse the combined eligible-package percentage from `go tool cover -func` and reject any result below 90%.
+The CI pipeline should parse the combined project percentage from `go tool cover -func` and reject any result below 90%.
 
 ## Logging with Uber Zap
 
@@ -866,7 +865,7 @@ The pipeline must:
 - Install the configured Go version.
 - Run unit and integration tests as configured by the repository.
 - Generate a coverage profile.
-- Fail if eligible domain/application coverage is below 90%.
+- Fail if combined Go project coverage is below 90%.
 - Run static analysis and error checks.
 - Build Lambda binaries for Linux ARM64.
 - Package each API-group binary as a ZIP archive containing a `bootstrap` file.
@@ -881,11 +880,11 @@ Terraform manages Lambda functions, configuration, API Gateway resources, IAM ro
 Because the project has multiple Lambda entry points, build one archive per command:
 
 ```text
-cmd/auth/main.go  → auth-lambda.zip
-cmd/users/main.go → users-lambda.zip
-cmd/posts/main.go → posts-lambda.zip
-cmd/ads/main.go   → ads-lambda.zip
-cmd/feed/main.go  → feed-lambda.zip
+cmd/auth/main.go  → build/auth-lambda.zip
+cmd/users/main.go → build/users-lambda.zip
+cmd/posts/main.go → build/posts-lambda.zip
+cmd/ads/main.go   → build/ads-lambda.zip
+cmd/feed/main.go  → build/feed-lambda.zip
 ```
 
 ### Required GitHub Actions workflow
@@ -905,7 +904,7 @@ permissions:
 
 env:
   GO_VERSION: "1.27.x"
-  LAMBDA_ARCHIVE: auth-lambda.zip
+  LAMBDA_ARCHIVE: build/auth-lambda.zip
   TF_IN_AUTOMATION: "true"
 
 jobs:
@@ -923,7 +922,7 @@ jobs:
 
       - name: Run tests and collect coverage
         run: |
-          go test ./internal/... -coverprofile=coverage.out
+          go test ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out | tee coverage.txt
 
       - name: Enforce 90 percent coverage
@@ -942,17 +941,19 @@ jobs:
           GOOS: linux
           GOARCH: arm64
           CGO_ENABLED: 0
-        run: go build -trimpath -ldflags='-s -w' -o bootstrap ./cmd/auth
+        run: |
+          mkdir -p build/auth
+          go build -trimpath -ldflags='-s -w' -o build/auth/bootstrap ./cmd/auth
 
       - name: Package Lambda
-        run: zip -j "${LAMBDA_ARCHIVE}" bootstrap
+        run: (cd build/auth && zip -j ../auth-lambda.zip bootstrap)
 
       - name: Upload Lambda package
         uses: actions/upload-artifact@v4
         with:
           name: auth-lambda-package
           path: |
-            ${{ env.LAMBDA_ARCHIVE }}
+            build/auth-lambda.zip
             coverage.out
           if-no-files-found: error
 
@@ -1214,13 +1215,50 @@ Integration tests should verify:
 
 Integration tests should use isolated tables, deterministic test data, and explicit container lifecycle management. They should not depend on developer credentials or an already-running local database.
 
+Use one Testcontainers instance per integration test suite or Go test package,
+not one container per test case. Start the DynamoDB Local container once in
+Ginkgo `BeforeSuite`, create the required client and tables once, and terminate
+the container once in `AfterSuite`. All specs in that suite reuse the same
+endpoint. Tests remain independent by using isolated table names, deterministic
+keys, and cleanup/reset operations between specs. Do not call
+`GenericContainer`, `Run`, or `Terminate` from an individual `It` block.
+
+If integration packages run in parallel, each package may own one container;
+the number of containers must scale with suites/packages, never with the
+number of test cases. Do not enable persistent Testcontainers reuse in CI;
+suite-scoped lifecycle plus explicit table isolation prevents stale state.
+
+Fixtures and support code have separate responsibilities:
+
+- `tests/fixtures/` contains deterministic users, posts, advertisements,
+  tokens, request bodies, timestamps, and fixture builders.
+- `tests/integration/support/` contains Testcontainers lifecycle, DynamoDB
+  clients, table creation/deletion, reset helpers, and shared assertions.
+- `tests/e2e/support/` contains Resty clients and deployed-environment helpers.
+
+Fixtures must not start containers or access AWS. Support helpers must not hide
+test data or silently weaken assertions.
+
 Example layout:
 
 ```text
-internal/user/dynamodb/integration_test.go
-internal/post/dynamodb/integration_test.go
-internal/feed/dynamodb/integration_test.go
-test/integration/
+tests/
+├── fixtures/
+│   ├── auth.go
+│   ├── posts.go
+│   └── advertisements.go
+├── integration/
+│   ├── auth/
+│   │   ├── auth_suite_test.go
+│   │   ├── register_test.go
+│   │   ├── login_test.go
+│   │   └── refresh_test.go
+│   └── support/
+│       ├── containers.go
+│       └── dynamodb.go
+└── e2e/
+    └── support/
+        └── resty.go
 ```
 
 ### End-to-end tests: Resty
@@ -1242,10 +1280,10 @@ The E2E environment should provide its own configuration, tables, secrets, and t
 Example layout:
 
 ```text
-test/e2e/auth_test.go
-test/e2e/posts_test.go
-test/e2e/feed_test.go
-test/e2e/ads_test.go
+tests/e2e/auth_test.go
+tests/e2e/posts_test.go
+tests/e2e/feed_test.go
+tests/e2e/ads_test.go
 ```
 
 ### Lambda smoke tests

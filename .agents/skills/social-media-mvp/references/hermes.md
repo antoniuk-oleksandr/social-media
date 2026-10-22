@@ -13,9 +13,33 @@ just local-up
 DynamoDB endpoints:
 
 ```text
-Host process:    http://127.0.0.1:8000
+Host process:    the published local DynamoDB endpoint
 Hermes sandbox:  http://dynamodb-local:8000
 ```
+
+## Local Lambda invocation
+
+Local Lambda build artifacts are written under the repository root's `build/`
+directory. The auth bootstrap is generated at `build/auth/bootstrap`; no
+generated binaries are written under `infra/local`.
+
+Use SAM through the Justfile without starting an application HTTP server:
+
+```bash
+just auth-run
+```
+
+For an arbitrary API Gateway request, provide the method, path, body, and
+headers:
+
+```bash
+just auth-request POST /api/v1/auth/register \
+  '{"username":"alice","email":"alice@example.com","password":"secure-password","displayName":"Alice"}' \
+  '{"content-type":"application/json"}'
+```
+
+The SAM template is [`infra/local/template.yaml`](../../../../infra/local/template.yaml),
+and the local test environment is [`infra/local/env.json`](../../../../infra/local/env.json).
 
 ## Configure and run Hermes
 
@@ -33,7 +57,28 @@ The configuration:
 - mounts this repository at `/workspace`;
 - joins `social-media-local`;
 - keeps provider credentials in the persistent `/opt/data` mount; and
-- allows up to three delegated children.
+- allows up to three delegated children;
+- enables `agent.coding_context: on` for Slack and CLI sessions; and
+- injects the Dev → Tester → Reviewer workflow as persistent
+  `agent.coding_instructions`, so it does not need to be repeated in every
+  request;
+- requires agent replies to be in English unless the user explicitly requests
+  another language. Hermes `display.language` controls UI text only, so the
+  reply-language rule is kept in `agent.coding_instructions`.
+- requires persistence tasks to include and run Testcontainers integration
+  tests; unit tests alone cannot receive approval. Missing test dependencies or
+  files must be added. Docker is required only for executing the
+  container-backed tests: when unavailable, Hermes must still add and
+  compile-check the tests, run non-container checks, and report the integration
+  execution as blocked.
+
+Every Hermes startup automatically trusts `/workspace`, so the repository's
+`.agents/skills/` are available to new sessions. You can also refresh trust
+manually with `just hermes-trust`.
+
+The workflow instructions are loaded into new sessions from
+`.agents/hermes/config.yaml`. Restart the gateway after changing this file;
+existing sessions retain their cached system prompt.
 
 ## Slack and GitHub Project planning
 
@@ -44,11 +89,14 @@ but its token is resolved from the private `/opt/data/.env` file.
 
 Create the private credentials file on the host:
 
+Set `HERMES_DATA_DIR` to your private Hermes data directory before running the
+commands below.
+
 ```bash
-mkdir -p "$HOME/.hermes"
-touch "$HOME/.hermes/.env"
-chmod 600 "$HOME/.hermes/.env"
-${EDITOR:-vi} "$HOME/.hermes/.env"
+mkdir -p "$HERMES_DATA_DIR"
+touch "$HERMES_DATA_DIR/.env"
+chmod 600 "$HERMES_DATA_DIR/.env"
+${EDITOR:-vi} "$HERMES_DATA_DIR/.env"
 ```
 
 Add values like these, replacing placeholders locally:
@@ -120,23 +168,51 @@ just hermes-up
 just hermes-logs
 ```
 
-## Agent roles
+## Agent roles and delegated review loop
 
 - `hermes-dev`: implements one endpoint task and does not commit or open PRs.
-- `hermes-tester`: runs validation, unit tests, Testcontainers integration tests, and coverage without silently changing product code.
-- `hermes-reviewer`: performs a read-only contract and architecture review.
+- `hermes-tester`: adds or corrects tests, then runs validation, unit tests,
+  Testcontainers integration tests, and coverage; it does not change production
+  behavior.
+- `hermes-reviewer`: performs a read-only contract and architecture review of
+  both production code and tests, classifies findings, and routes fixes to Dev
+  or Tester.
 
-Run them sequentially against the same workspace:
+For every implementation task, the parent Hermes session must delegate these
+stages sequentially against the same workspace:
 
 ```text
-developer → tester → reviewer → human review
+developer → tester → reviewer
+                         ↓ findings
+                 dev and/or tester → reviewer
+                         ↓ APPROVED
+                    human review
 ```
 
-Do not run multiple editing agents concurrently. Delegated children share the persistent Docker workspace by default, so simultaneous edits can conflict.
+The reviewer never edits the workspace itself. Production defects are delegated
+to `hermes-dev`; missing or incorrect tests are delegated to `hermes-tester`.
+When both are needed, Dev runs first and Tester runs after the code fix. The
+reviewer is delegated again after every fix. Use at most three review-fix
+cycles, then stop for human direction. The parent must report each child/session
+ID and result; claiming a three-agent workflow without delegation evidence is
+not completion.
+
+Do not run multiple editing agents concurrently. Delegated children share the
+persistent Docker workspace by default, so simultaneous edits can conflict.
 
 ## Test isolation
 
-Compose DynamoDB Local is for manual development. Integration tests must create and own isolated Testcontainers and tables; they must not rely on a developer-managed Compose service.
+Compose DynamoDB Local is for manual development. Integration tests must create
+and own isolated Testcontainers and tables; they must not rely on a
+developer-managed Compose service. Use one DynamoDB Local Testcontainer per
+integration suite or Go test package, shared by all specs in that suite. Start
+it in `BeforeSuite`, terminate it in `AfterSuite`, and isolate specs with table
+names or cleanup. Never create one container per test case.
+
+Keep deterministic data in `tests/fixtures/`. Keep Testcontainers lifecycle,
+DynamoDB clients, table setup/reset, and shared assertions in
+`tests/integration/support/`. Keep Resty client helpers in
+`tests/e2e/support/`.
 
 ## Security boundaries
 

@@ -3,3 +3,11 @@
 
 # Local DynamoDB data.
 /infra/local/data/
+
+# Generated Go coverage artifacts.
+coverage.out
+coverage.txt
+coverage.html
+
+# Generated Lambda build artifacts.
+/build/

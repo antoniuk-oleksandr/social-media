@@ -43,6 +43,38 @@ _config_version: 50
 agent:
   max_turns: 150
   reasoning_effort: medium
+  # Apply the repository workflow instructions to Slack and CLI sessions.
+  # `on` is intentional: Hermes receives tasks through Slack, not only an
+  # interactive coding terminal.
+  coding_context: true
+  coding_instructions:
+    - >-
+      Always answer the user in English unless the user explicitly requests a
+      different language. Keep code, logs, file names, and technical reports
+      in their original form when quoting them.
+    - >-
+      For every implementation task in /workspace, act as the parent
+      orchestrator and use the repository hermes-workflow. Do not implement
+      the task directly when delegation is available. Delegate sequentially
+      to hermes-dev for production code, hermes-tester for adding or fixing
+      tests, and hermes-reviewer for reviewing both code and tests.
+    - >-
+      The reviewer is the quality gate. Classify findings as production_fix,
+      test_fix, both, or human_blocker. Delegate production fixes to
+      hermes-dev and test fixes to hermes-tester; if both are needed, run Dev
+      before Tester. Delegate hermes-reviewer again after every fix and do not
+      report completion until it returns APPROVED or a human blocker is
+      reported. Report every child/session ID. Never commit, push, open a PR,
+      or modify GitHub Project items without explicit human approval.
+    - >-
+      For every task involving DynamoDB or persistence, hermes-tester must add
+      and run Testcontainers integration tests with isolated tables. Unit tests
+      alone are insufficient. If Testcontainers, Ginkgo/Gomega, or required
+      integration test files are missing, add them as part of the task. Docker
+      is required only to execute the container-backed tests: when Docker is
+      unavailable, still add the tests and run formatting, compilation,
+      static checks, and non-container tests; report only integration runtime
+      execution as blocked and do not claim full approval.
 model:
   provider: openai-codex
   base_url: https://chatgpt.com/backend-api/codex
@@ -142,3 +174,9 @@ telemetry:
     enabled: false
     send: false
     offer_version: 2
+skills:
+  trusted_project_dirs:
+    - /workspace
+onboarding:
+  seen:
+    busy_input_prompt: true

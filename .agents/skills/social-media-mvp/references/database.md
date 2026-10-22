@@ -14,7 +14,7 @@ Manual local development runs DynamoDB Local through [`infra/local/docker-compos
 docker compose -f infra/local/docker-compose.yaml up -d
 ```
 
-The service is named `dynamodb-local` on the Docker network `social-media-local` and listens on port `8000`. Host processes connect to `http://127.0.0.1:8000`; containers attached to `social-media-local` connect to `http://dynamodb-local:8000`.
+The service is named `dynamodb-local` on the Docker network `social-media-local` and listens on port `8000`. Host processes connect to the published local DynamoDB endpoint; containers attached to `social-media-local` connect to `http://dynamodb-local:8000`.
 
 The Compose network is dedicated to this local stack and the host port is bound to loopback. The ignored `infra/local/data/` bind mount persists local data between ordinary `down` and `up` operations. Remove that directory only when intentionally deleting local data.
 

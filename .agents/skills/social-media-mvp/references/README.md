@@ -14,14 +14,14 @@ This directory contains the product, architecture, API, planning, and operations
 
 ## Local infrastructure
 
-Manual local development uses the Compose stack in [`../infra/local/docker-compose.yaml`](../infra/local/docker-compose.yaml). It runs DynamoDB Local on the dedicated Docker network `social-media-local` and publishes it only to `127.0.0.1:8000` on the host.
+Manual local development uses the Compose stack in [`../infra/local/docker-compose.yaml`](../infra/local/docker-compose.yaml). It runs DynamoDB Local on the dedicated Docker network `social-media-local` and publishes it only to the local host endpoint.
 
 ```bash
 docker compose -f infra/local/docker-compose.yaml up -d
 docker compose -f infra/local/docker-compose.yaml down
 ```
 
-Applications running on the host use `http://127.0.0.1:8000`. Applications running in a container attached to `social-media-local` use `http://dynamodb-local:8000`.
+Applications running on the host use the published local DynamoDB endpoint. Applications running in a container attached to `social-media-local` use `http://dynamodb-local:8000`.
 
 Compose is for manual local development. Repository integration tests must use Testcontainers and isolated tables rather than depending on a developer-managed Compose process.
 - [Planning](planning/): epics, user stories, tasks, roadmap, and sprint plans.

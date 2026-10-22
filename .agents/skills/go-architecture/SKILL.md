@@ -15,6 +15,8 @@ Use package by feature consistently:
 internal/
 ├── auth/
 │   ├── domain.go
+│   ├── fx/
+│   │   └── fx.go
 │   ├── service.go
 │   ├── handler.go
 │   ├── router.go
@@ -38,6 +40,8 @@ Each feature owns its domain entities, domain errors, repository interfaces, ser
 - Repositories are interfaces in the feature boundary; DynamoDB implementations live under the feature's `dynamodb` package.
 - Constructors return interfaces where the dependency is consumed, for example `func NewUserRepo(...) UserRepo`.
 - Use Uber Fx for composition. Do not add manual composition roots to Lambda entry points.
+- Keep constructors in feature/platform packages, but wire the documented Lambda graph directly in each command entry point.
+- Keep each Lambda `cmd/*/main.go` as one `func main`: direct `fx.Provide` registrations, `fx.Populate`, Fx lifecycle, and `lambda.Start(algnhsa.New(...))`. Never use `http.ListenAndServe` for API entry points.
 - Keep framework and database dependencies out of domain packages.
 
 ## Entry points

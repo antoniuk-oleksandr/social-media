@@ -126,7 +126,7 @@ Infrastructure errors are logged internally and never returned directly.
 
 ## Infrastructure and deployment
 
-Manual local development uses `infra/local/docker-compose.yaml` to run DynamoDB Local. The service is reachable as `http://127.0.0.1:8000` from host processes and as `http://dynamodb-local:8000` from containers attached to the dedicated `social-media-local` Docker network. The Compose stack is not used by production deployments or as a shared dependency for integration tests; Testcontainers owns integration-test database lifecycle and isolation.
+Manual local development uses `infra/local/docker-compose.yaml` to run DynamoDB Local. The service is reachable through the published local endpoint from host processes and as `http://dynamodb-local:8000` from containers attached to the dedicated `social-media-local` Docker network. The Compose stack is not used by production deployments or as a shared dependency for integration tests; Testcontainers owns integration-test database lifecycle and isolation.
 
 Terraform under `infra/terraform` manages Lambda functions, API Gateway HTTP API v2, DynamoDB, IAM, CloudWatch, Lambda environment variables, and GitHub OIDC permissions. The environments are `dev` and `prod`, with `dev` as the initial MVP deployment.
 
@@ -141,7 +141,7 @@ GitHub Actions runs tests, coverage enforcement, static analysis, ARM64 builds, 
 - Ginkgo and Gomega: unit tests for domain and application packages.
 - Testcontainers with DynamoDB Local or an isolated AWS environment: repository integration tests.
 - Resty: E2E tests against the deployed development API.
-- Minimum 90% statement coverage for eligible domain and application service packages.
+- Minimum 90% combined statement coverage for the complete Go project (`./...`).
 - Handler coverage is reported separately; integration, E2E, Lambda bootstrap, generated code, and Terraform are outside the 90% threshold.
 
 The MVP acceptance flow covers registration, duplicate usernames, login, 45 posts, admin ad creation, feed pagination, cursor tampering, refresh rotation and replay revocation, ownership checks, and Lambda redeployment without infrastructure changes.
