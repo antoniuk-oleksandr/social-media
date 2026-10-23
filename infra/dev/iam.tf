@@ -29,12 +29,15 @@ data "aws_iam_policy_document" "auth_lambda" {
     effect = "Allow"
     actions = [
       "dynamodb:DescribeTable",
+      "dynamodb:ConditionCheckItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
+      "dynamodb:Query",
       "dynamodb:TransactWriteItems"
     ]
     resources = [
       aws_dynamodb_table.users.arn,
+      "${aws_dynamodb_table.users.arn}/index/*",
       aws_dynamodb_table.uniques.arn,
       aws_dynamodb_table.refresh_sessions.arn
     ]
