@@ -69,6 +69,7 @@ func (s loginService) Register(context.Context, auth.RegisterCommand) (auth.Regi
 func (s loginService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
 	return s.result, s.err
 }
+func (s loginService) Logout(context.Context, string) error { return s.err }
 
 func newLoginService(store *loginStore, verifierErr error) *auth.Service {
 	return &auth.Service{LoginStore: store, Verifier: loginVerifier{err: verifierErr}, IDs: loginIDs{}, Clock: loginClock{}, Access: loginAccess{}, Opaque: loginOpaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}

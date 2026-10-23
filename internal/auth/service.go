@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
@@ -20,7 +20,18 @@ type Service struct {
 	Clock                 Clock
 	Access                AccessTokenIssuer
 	Opaque                OpaqueTokenGenerator
+	LogoutStore           LogoutStore
 	AccessTTL, RefreshTTL time.Duration
+}
+
+func (s *Service) Logout(ctx context.Context, refreshToken string) error {
+	if strings.TrimSpace(refreshToken) == "" {
+		return fmt.Errorf("%w: refresh token is required", ErrValidation)
+	}
+	if s.LogoutStore == nil {
+		return ErrDependencyUnavailable
+	}
+	return s.LogoutStore.RevokeSessionFamily(ctx, HashRefreshToken(refreshToken))
 }
 
 func (s *Service) Register(ctx context.Context, raw RegisterCommand) (RegisterResult, error) {
@@ -58,7 +69,7 @@ func (s *Service) Register(ctx context.Context, raw RegisterCommand) (RegisterRe
 }
 func HashRefreshToken(t string) string {
 	h := sha256.Sum256([]byte(t))
-	return hex.EncodeToString(h[:])
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
 func (s *Service) Login(ctx context.Context, raw LoginCommand) (RegisterResult, error) {

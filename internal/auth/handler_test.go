@@ -116,6 +116,10 @@ func (s *countingService) Login(context.Context, auth.LoginCommand) (auth.Regist
 	s.calls++
 	return auth.RegisterResult{}, s.err
 }
+func (s *countingService) Logout(context.Context, string) error {
+	s.calls++
+	return s.err
+}
 
 func errorBody(w *httptest.ResponseRecorder) auth.ErrorResponse {
 	var got auth.ErrorResponse

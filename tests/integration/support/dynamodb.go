@@ -104,6 +104,14 @@ func CreateTable(ctx context.Context, client *dynamodb.Client, tableName, hashKe
 			{IndexName: aws.String("UsernameIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("username"), KeyType: types.KeyTypeHash}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
 		}
 	}
+	if hashKey == "tokenHash" {
+		input.AttributeDefinitions = append(input.AttributeDefinitions,
+			types.AttributeDefinition{AttributeName: aws.String("sessionId"), AttributeType: types.ScalarAttributeTypeS},
+		)
+		input.GlobalSecondaryIndexes = []types.GlobalSecondaryIndex{
+			{IndexName: aws.String("SessionIdIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("sessionId"), KeyType: types.KeyTypeHash}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
+		}
+	}
 	_, err := client.CreateTable(ctx, input)
 	return err
 }
