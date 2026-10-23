@@ -32,7 +32,7 @@ var _ = Describe("login persistence", func() {
 		Expect(integrationStore().Register(context.Background(), registration)).To(Succeed())
 
 		access := platformjwt.Access{Keys: platformjwt.StaticKey{KID: "test-key", Secret: []byte("test-secret")}, KID: "test-key", Issuer: "social-media", Audience: "social-media-api", TTL: 15 * time.Minute, ID: func() string { return "login-jti" }}
-		svc := authdomain.Service{LoginStore: integrationStore(), Verifier: password.Bcrypt{}, IDs: fixedID("login-session"), Clock: fixedClock{at: registration.User.CreatedAt}, Access: access, Opaque: token.Opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+		svc := authdomain.Service{LoginStore: integrationStore(), Verifier: password.Bcrypt{}, IDs: fixedID("login-session"), Clock: fixedClock{at: time.Now().UTC()}, Access: access, Opaque: token.Opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 		for _, login := range []string{registration.User.Username, strings.ToUpper(registration.User.Email)} {
 			result, loginErr := svc.Login(context.Background(), authdomain.LoginCommand{Login: login, Password: "correct-password"})
 			Expect(loginErr).NotTo(HaveOccurred())
