@@ -90,3 +90,27 @@ variable "media_bucket_name" {
   default     = ""
   description = "Optional globally unique S3 bucket name for application media."
 }
+
+variable "github_repository" {
+  type        = string
+  default     = "antoniuk-oleksandr/social-media"
+  description = "GitHub repository allowed to assume the deployment role."
+}
+
+variable "github_environment" {
+  type        = string
+  default     = "dev"
+  description = "GitHub environment allowed to assume the deployment role."
+}
+
+variable "github_actions_role_name" {
+  type        = string
+  default     = "social-media-github-actions-deploy"
+  description = "IAM role assumed by GitHub Actions through OIDC."
+}
+
+variable "terraform_state_bucket" {
+  type        = string
+  default     = "social-media-terraform-state-851725490860"
+  description = "Existing S3 bucket used by the Terraform backend."
+}

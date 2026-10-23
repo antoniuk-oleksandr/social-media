@@ -26,4 +26,4 @@ Hermes should trust this repository and read the relevant skill before changing 
 
 Generated binaries and local Lambda artifacts belong under the repository
 root's `build/` directory. The local SAM template uses `build/auth/` and the
-supported commands are `just auth-run` and `just auth-request`.
+supported commands are `just build` and `just auth-request`.

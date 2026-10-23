@@ -1,0 +1,135 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+  TF_IN_AUTOMATION: true
+  TF_INPUT: false
+
+jobs:
+  test:
+    name: Test and validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run race-enabled tests
+        run: go test -race ./...
+
+      - name: Check coverage
+        run: |
+          go test ./... -coverprofile=coverage.out
+          bash scripts/check_coverage.sh coverage.out
+
+      - name: Run integration tests
+        run: go test -race -tags=integration ./tests/integration/...
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra/dev
+
+      - name: Initialize Terraform bootstrap for validation
+        working-directory: infra/dev/bootstrap
+        run: terraform init -backend=false
+
+      - name: Validate Terraform bootstrap
+        working-directory: infra/dev/bootstrap
+        run: terraform validate
+
+      - name: Initialize Terraform application for validation
+        working-directory: infra/dev
+        run: terraform init -backend=false
+
+      - name: Validate Terraform
+        working-directory: infra/dev
+        run: terraform validate
+
+  deploy:
+    name: Deploy with Terraform
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build all Lambda packages
+        run: bash scripts/package_lambdas.sh
+
+      - name: Initialize Terraform backend
+        working-directory: infra/dev
+        run: |
+          terraform init -backend-config=backend.hcl
+
+          test -n "$(terraform state list)"
+
+      - name: Load signing key from SSM for Terraform
+        working-directory: infra/dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          jwt_parameter_name="$(terraform output -raw jwt_signing_key_parameter)"
+          signing_key="$(aws ssm get-parameter \
+            --name "$jwt_parameter_name" \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text)"
+          test "${#signing_key}" -ge 32
+          echo "::add-mask::$signing_key"
+          echo "TF_VAR_jwt_signing_key=$signing_key" >> "$GITHUB_ENV"
+
+      - name: Plan Lambda deployment
+        working-directory: infra/dev
+        run: terraform plan \
+          -refresh=false \
+          -target=aws_lambda_function.auth \
+          -out=../../build/terraform.tfplan
+
+      - name: Apply Lambda deployment
+        working-directory: infra/dev
+        run: terraform apply ../../build/terraform.tfplan
