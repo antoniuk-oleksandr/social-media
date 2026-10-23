@@ -28,6 +28,7 @@ var _ = Describe("CompositionGraphBuilds", func() {
 				platformfx.NewOpaqueTokenGenerator,
 				platformlogging.New,
 				authfx.NewRegistrationStore,
+				authfx.NewLoginStore,
 				authfx.NewServicePort,
 				authfx.NewHandler,
 				authfx.NewRouter,

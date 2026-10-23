@@ -12,3 +12,7 @@ func (b Bcrypt) Hash(s string) (string, error) {
 	h, e := bcrypt.GenerateFromPassword([]byte(s), c)
 	return string(h), e
 }
+
+func (Bcrypt) Compare(hash, plaintext string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext))
+}

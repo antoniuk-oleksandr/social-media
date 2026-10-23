@@ -25,8 +25,18 @@ func NewRegistrationStore(client *dynamodb.Client) auth.RegistrationStore {
 	}
 }
 
+func NewLoginStore(client *dynamodb.Client) auth.LoginStore {
+	return authdb.Store{
+		Client:       client,
+		UsersTable:   platformfx.Value("USERS_TABLE", "social-media-local-users"),
+		UniquesTable: platformfx.Value("UNIQUES_TABLE", "social-media-local-uniques"),
+		RefreshTable: platformfx.Value("REFRESH_TABLE", "social-media-local-refresh-sessions"),
+	}
+}
+
 func NewService(
 	store auth.RegistrationStore,
+	loginStore auth.LoginStore,
 	hasher password.Bcrypt,
 	ids id.UUIDv7,
 	clk clock.Real,
@@ -35,7 +45,9 @@ func NewService(
 ) *auth.Service {
 	return &auth.Service{
 		Store:      store,
+		LoginStore: loginStore,
 		Hasher:     hasher,
+		Verifier:   hasher,
 		IDs:        ids,
 		Clock:      clk,
 		Access:     access,
@@ -47,13 +59,14 @@ func NewService(
 
 func NewServicePort(
 	store auth.RegistrationStore,
+	loginStore auth.LoginStore,
 	hasher password.Bcrypt,
 	ids id.UUIDv7,
 	clk clock.Real,
 	access jwtkey.Access,
 	opaque token.Opaque,
 ) auth.ServicePort {
-	return NewService(store, hasher, ids, clk, access, opaque)
+	return NewService(store, loginStore, hasher, ids, clk, access, opaque)
 }
 
 func NewHandler(service auth.ServicePort, logger logging.Logger) auth.Handler {

@@ -9,6 +9,26 @@ import (
 
 type FieldErrors map[string]string
 
+func validLoginIdentifier(login string) bool {
+	if len(login) >= 3 && len(login) <= 30 {
+		validUsername := true
+		for _, r := range login {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+				validUsername = false
+				break
+			}
+		}
+		if validUsername {
+			return true
+		}
+	}
+	if len(login) > 254 {
+		return false
+	}
+	a, err := mail.ParseAddress(login)
+	return err == nil && a.Address == login && strings.Contains(login, "@")
+}
+
 func Validate(c RegisterCommand) (RegisterCommand, FieldErrors) {
 	e := FieldErrors{}
 	if len(c.Username) < 3 || len(c.Username) > 30 {

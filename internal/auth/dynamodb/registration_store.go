@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -23,6 +25,10 @@ type API interface {
 type Store struct {
 	Client                                 API
 	UsersTable, UniquesTable, RefreshTable string
+}
+
+type queryAPI interface {
+	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
 func (s Store) Register(ctx context.Context, r auth.Registration) error {
@@ -181,4 +187,50 @@ func (s Store) reservationExists(ctx context.Context, key string) (bool, error) 
 		return false, err
 	}
 	return len(out.Item) > 0, nil
+}
+
+func (s Store) FindByLogin(ctx context.Context, login string) (user.User, error) {
+	q, ok := s.Client.(queryAPI)
+	if !ok {
+		return user.User{}, auth.ErrDependencyUnavailable
+	}
+	index, field := "EmailIndex", "email"
+	if !strings.Contains(login, "@") {
+		index, field = "UsernameIndex", "username"
+	}
+	out, err := q.Query(ctx, &dynamodb.QueryInput{
+		TableName: aws.String(s.UsersTable), IndexName: aws.String(index),
+		KeyConditionExpression:    aws.String("#login = :login"),
+		ExpressionAttributeNames:  map[string]string{"#login": field},
+		ExpressionAttributeValues: map[string]types.AttributeValue{":login": &types.AttributeValueMemberS{Value: login}}, Limit: aws.Int32(1),
+	})
+	if err != nil {
+		return user.User{}, wrapDependencyError("find user", err)
+	}
+	if len(out.Items) == 0 {
+		return user.User{}, user.ErrNotFound
+	}
+	item := out.Items[0]
+	created, err := time.Parse(time.RFC3339, attributeString(item, "createdAt"))
+	if err != nil {
+		return user.User{}, fmt.Errorf("decode user: %w", err)
+	}
+	return user.User{ID: attributeString(item, "userId"), Username: attributeString(item, "username"), Email: attributeString(item, "email"), PasswordHash: attributeString(item, "passwordHash"), DisplayName: attributeString(item, "displayName"), Role: user.Role(attributeString(item, "role")), Status: user.Status(attributeString(item, "status")), CreatedAt: created}, nil
+}
+
+func (s Store) CreateLoginSession(ctx context.Context, r auth.RefreshSession) error {
+	_, err := s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{{Put: &types.Put{TableName: aws.String(s.RefreshTable), Item: map[string]types.AttributeValue{
+		"tokenHash": &types.AttributeValueMemberS{Value: r.TokenHash}, "sessionId": &types.AttributeValueMemberS{Value: r.SessionID}, "userId": &types.AttributeValueMemberS{Value: r.UserID}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberN{Value: strconv.FormatInt(r.CreatedAt.Unix(), 10)}, "expiresAt": &types.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpiresAt.Unix(), 10)}, "ttl": &types.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpiresAt.Unix(), 10)}, "version": &types.AttributeValueMemberN{Value: "1"},
+	}, ConditionExpression: aws.String("attribute_not_exists(tokenHash)")}}}})
+	if err != nil {
+		return wrapDependencyError("create login session", err)
+	}
+	return nil
+}
+
+func attributeString(item map[string]types.AttributeValue, key string) string {
+	if value, ok := item[key].(*types.AttributeValueMemberS); ok {
+		return value.Value
+	}
+	return ""
 }

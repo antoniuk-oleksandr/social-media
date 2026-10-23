@@ -74,14 +74,15 @@ func initTables(ctx context.Context, client tableCreator, print func(string, ...
 func main() {
 	app := fx.New(
 		fx.Provide(
+			func() context.Context { return context.Background() },
 			platformfx.LoadAWSConfig,
 			fx.Annotate(platformfx.NewDynamoDBClient, fx.As(new(tableCreator))),
 			func() func(string, ...any) (int, error) {
 				return func(format string, args ...any) (int, error) { return fmt.Printf(format, args...) }
 			},
 		),
-		fx.Invoke(func(client tableCreator, print func(string, ...any) (int, error)) error {
-			return initTables(context.Background(), client, print)
+		fx.Invoke(func(ctx context.Context, client tableCreator, print func(string, ...any) (int, error)) error {
+			return initTables(ctx, client, print)
 		}),
 	)
 	ctx := context.Background()

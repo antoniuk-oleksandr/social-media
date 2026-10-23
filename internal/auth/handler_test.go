@@ -45,7 +45,11 @@ type recordingLogger struct {
 	fields  []logging.Field
 }
 
-func (l *recordingLogger) Info(string, ...logging.Field) error { return nil }
+func (l *recordingLogger) Info(message string, fields ...logging.Field) error {
+	l.message = message
+	l.fields = fields
+	return nil
+}
 
 func (l *recordingLogger) Error(message string, fields ...logging.Field) error {
 	l.message = message
@@ -104,6 +108,11 @@ type countingService struct {
 }
 
 func (s *countingService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
+	s.calls++
+	return auth.RegisterResult{}, s.err
+}
+
+func (s *countingService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
 	s.calls++
 	return auth.RegisterResult{}, s.err
 }
@@ -225,6 +234,62 @@ var _ = Describe("RegisterHandlerLogsServiceFailures", func() {
 		code, found := logger.field("error_code")
 		Expect(found).To(BeTrue())
 		Expect(code).To(Equal("SERVICE_UNAVAILABLE"))
+	})
+})
+
+var _ = Describe("LoginHandlerLogging", func() {
+	It("records safe structured fields without credentials or secrets", func() {
+		logger := &recordingLogger{}
+		service := &countingService{err: auth.ErrInvalidCredentials}
+		h := auth.Handler{Service: service, Logger: logger}
+		password := "correct-password"
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice@example.com","password":"`+password+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Request-ID", "req-login")
+		w := httptest.NewRecorder()
+
+		h.Login(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusUnauthorized))
+		Expect(logger.message).To(Equal("login request completed"))
+		for _, field := range []string{"request_id", "route", "status", "duration", "error_code"} {
+			_, found := logger.field(field)
+			Expect(found).To(BeTrue(), field)
+		}
+		requestID, _ := logger.field("request_id")
+		Expect(requestID).To(Equal("req-login"))
+		route, _ := logger.field("route")
+		Expect(route).To(Equal("POST /api/v1/auth/login"))
+		status, _ := logger.field("status")
+		Expect(status).To(Equal("401"))
+		code, _ := logger.field("error_code")
+		Expect(code).To(Equal("INVALID_CREDENTIALS"))
+		for _, field := range logger.fields {
+			Expect(field.Key).NotTo(Or(Equal("login"), Equal("password"), Equal("authorization"), Equal("access_token"), Equal("refresh_token")))
+			Expect(field.Value).NotTo(Equal(password))
+			Expect(field.Value).NotTo(Equal("alice@example.com"))
+		}
+	})
+})
+
+var _ = Describe("LoginHandlerInternalFailureLogging", func() {
+	It("uses Error level with safe dependency context", func() {
+		logger := &recordingLogger{}
+		service := &countingService{err: errors.New("database credentials leaked?")}
+		h := auth.Handler{Service: service, Logger: logger}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice","password":"correct-password"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Request-ID", "req-internal")
+		w := httptest.NewRecorder()
+
+		h.Login(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusInternalServerError))
+		Expect(logger.message).To(Equal("login internal failure"))
+		errorValue, found := logger.field("error")
+		Expect(found).To(BeTrue())
+		Expect(errorValue).To(Equal("database credentials leaked?"))
+		Expect(logger.field("password")).To(BeNil())
 	})
 })
 

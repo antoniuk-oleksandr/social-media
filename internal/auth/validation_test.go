@@ -23,6 +23,13 @@ var _ = Describe("ValidateBoundaries", func() {
 	})
 })
 
+var _ = Describe("FieldErrors", func() {
+	It("renders field errors for diagnostics", func() {
+		errors := FieldErrors{"email": "must be valid"}
+		Expect(errors.Error()).To(ContainSubstring("email"))
+	})
+})
+
 var _ = Describe("ValidateRejectsContractViolations", func() {
 	It("runs the test", func() {
 		base := RegisterCommand{"abc", "a@b.com", "123456789012", "A"}
