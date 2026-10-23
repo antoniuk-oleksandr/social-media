@@ -17,6 +17,18 @@ resource "aws_apigatewayv2_route" "auth_register" {
   target    = "integrations/${aws_apigatewayv2_integration.auth.id}"
 }
 
+resource "aws_apigatewayv2_route" "auth_login" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /api/v1/auth/login"
+  target    = "integrations/${aws_apigatewayv2_integration.auth.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth_logout" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /api/v1/auth/logout"
+  target    = "integrations/${aws_apigatewayv2_integration.auth.id}"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http.id
   name        = "$default"
