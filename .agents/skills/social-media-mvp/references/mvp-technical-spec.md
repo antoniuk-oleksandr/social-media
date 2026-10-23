@@ -128,9 +128,9 @@ Infrastructure errors are logged internally and never returned directly.
 
 Manual local development uses `infra/local/docker-compose.yaml` to run DynamoDB Local. The service is reachable through the published local endpoint from host processes and as `http://dynamodb-local:8000` from containers attached to the dedicated `social-media-local` Docker network. The Compose stack is not used by production deployments or as a shared dependency for integration tests; Testcontainers owns integration-test database lifecycle and isolation.
 
-Terraform under `infra/terraform` manages Lambda functions, API Gateway HTTP API v2, DynamoDB, IAM, CloudWatch, Lambda environment variables, and GitHub OIDC permissions. The environments are `dev` and `prod`, with `dev` as the initial MVP deployment.
+Terraform under `infra/dev` manages the initial development Lambda function, API Gateway HTTP API v2, DynamoDB, IAM, CloudWatch, Lambda environment variables, and the private application media S3 bucket. The environment currently uses local Terraform state, with remote state migration deferred until the deployment workflow is established. A future `infra/prod` stack will manage production separately.
 
-Lambda functions use `provided.al2023`, `arm64`, handler `bootstrap`, 256 MB memory, and a 10-second timeout. Terraform uses a protected, encrypted, versioned, remotely stored state with locking.
+Lambda functions use `provided.al2023`, `arm64`, handler `bootstrap`, 256 MB memory, and a 10-second timeout. The initial dev stack uses local Terraform state. Production state must use a protected, encrypted, versioned remote backend before production deployment.
 
 SSM Parameter Store stores signing keys and other production secrets as `SecureString` values. Go configuration reads environment variables and resolves configured SSM parameter names during cold-start initialization. Feature packages receive typed configuration through constructors.
 
