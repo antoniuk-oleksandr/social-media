@@ -8,11 +8,9 @@ services:
     command: >-
       -jar DynamoDBLocal.jar
       -sharedDb
-      -dbPath /home/dynamodblocal/data
+      -inMemory
     ports:
       - "127.0.0.1:8000:8000"
-    volumes:
-      - ./data:/home/dynamodblocal/data
     networks:
       - social-media-local
 

@@ -3,6 +3,7 @@
 
 # Local DynamoDB data.
 /infra/local/data/
+/infra/local/__pycache__/
 
 # Generated Go coverage artifacts.
 coverage.out
