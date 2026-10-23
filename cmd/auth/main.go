@@ -29,6 +29,7 @@ func main() {
 			platformlogging.New,
 			authfx.NewRegistrationStore,
 			authfx.NewLoginStore,
+			authfx.NewLogoutStore,
 			authfx.NewServicePort,
 			authfx.NewHandler,
 			authfx.NewRouter,

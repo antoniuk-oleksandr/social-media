@@ -63,7 +63,23 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 			Expect(got.CreatedAt).To(Equal(created))
 			Expect(aws.ToString(api.queryIn.IndexName)).To(Equal(tc.index))
 			Expect(api.queryIn.ExpressionAttributeNames["#login"]).To(Equal(tc.field))
+			Expect(aws.ToInt32(api.queryIn.Limit)).To(Equal(int32(1)))
+			Expect(api.queryIn.ExclusiveStartKey).To(BeEmpty())
 		}
+	})
+
+	It("uses the first page deterministically when DynamoDB reports more results", func() {
+		api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{
+			Items: []map[string]types.AttributeValue{{
+				"userId":    &types.AttributeValueMemberS{Value: "first"},
+				"createdAt": &types.AttributeValueMemberS{Value: time.Unix(100, 0).UTC().Format(time.RFC3339)},
+			}},
+			LastEvaluatedKey: map[string]types.AttributeValue{"email": &types.AttributeValueMemberS{Value: "next"}},
+		}}
+		got, err := (Store{Client: api}).FindByLogin(context.Background(), "a@example.com")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.ID).To(Equal("first"))
+		Expect(aws.ToInt32(api.queryIn.Limit)).To(Equal(int32(1)))
 	})
 })
 
@@ -109,8 +125,8 @@ var _ = Describe("LoginStoreCreateLoginSession", func() {
 		store := Store{Client: api, RefreshTable: "refresh"}
 		Expect(store.CreateLoginSession(context.Background(), auth.RefreshSession{TokenHash: "hash", SessionID: "session", UserID: "user", CreatedAt: created, ExpiresAt: expires})).To(Succeed())
 		Expect(api.transIn).NotTo(BeNil())
-		Expect(api.transIn.TransactItems).To(HaveLen(1))
-		ttl, ok := api.transIn.TransactItems[0].Put.Item["ttl"].(*types.AttributeValueMemberN)
+		Expect(api.transIn.TransactItems).To(HaveLen(2))
+		ttl, ok := api.transIn.TransactItems[1].Put.Item["ttl"].(*types.AttributeValueMemberN)
 		Expect(ok).To(BeTrue())
 		Expect(ttl.Value).To(Equal("604900"))
 		api.transErr = errors.New("write failed")

@@ -10,6 +10,9 @@ type LoginRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
+type LogoutRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
 
 type UserResponse struct {
 	ID          string `json:"id"`

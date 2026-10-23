@@ -15,6 +15,7 @@ import (
 type ServicePort interface {
 	Register(context.Context, RegisterCommand) (RegisterResult, error)
 	Login(context.Context, LoginCommand) (RegisterResult, error)
+	Logout(context.Context, string) error
 }
 
 type Handler struct {
@@ -77,6 +78,51 @@ func (h Handler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusOK, out, rid)
 }
 
+func (h Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusNoContent
+	logCode := ""
+	var logErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logLogoutRequest(rid, status, logCode, logErr, time.Since(startedAt))
+	}()
+	if r.Header.Get("Content-Type") != "application/json" {
+		status, logCode = http.StatusUnsupportedMediaType, "INVALID_JSON"
+		writeErr(loggedWriter, status, logCode, "Content-Type must be application/json", rid)
+		return
+	}
+	var req LogoutRequest
+	if err := httpjson.Decode(r, &req); errors.Is(err, httpjson.ErrPayloadTooLarge) {
+		status, logCode = http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE"
+		writeErr(loggedWriter, status, logCode, "Request body is too large", rid)
+		return
+	} else if err != nil {
+		status, logCode = http.StatusBadRequest, "INVALID_JSON"
+		writeErr(loggedWriter, status, logCode, "Malformed JSON", rid)
+		return
+	}
+	if err := h.Service.Logout(r.Context(), req.RefreshToken); err != nil {
+		code, mappedStatus, message := "INTERNAL_ERROR", http.StatusInternalServerError, "Internal server error"
+		switch {
+		case errors.Is(err, ErrValidation):
+			code, mappedStatus, message = "VALIDATION_FAILED", http.StatusUnprocessableEntity, "Invalid logout fields"
+		case errors.Is(err, ErrInvalidRefreshToken):
+			code, mappedStatus, message = "INVALID_REFRESH_TOKEN", http.StatusUnauthorized, "Invalid refresh token"
+		case errors.Is(err, ErrDependencyUnavailable):
+			code, mappedStatus, message = "SERVICE_UNAVAILABLE", http.StatusServiceUnavailable, "Service temporarily unavailable"
+		}
+		status, logCode, logErr = mappedStatus, code, err
+		writeErr(loggedWriter, status, code, message, rid)
+		return
+	}
+	loggedWriter.WriteHeader(http.StatusNoContent)
+}
+
 type responseWriter struct {
 	http.ResponseWriter
 	status int
@@ -115,6 +161,31 @@ func (h Handler) logLoginRequest(requestID string, status int, code string, err 
 		return
 	}
 	if err := h.Logger.Info("login request completed", fields...); err != nil {
+		return
+	}
+}
+
+func (h Handler) logLogoutRequest(requestID string, status int, code string, err error, duration time.Duration) {
+	if h.Logger == nil {
+		return
+	}
+	fields := []logging.Field{
+		logging.String("request_id", requestID),
+		logging.String("route", "POST /api/v1/auth/logout"),
+		logging.String("status", strconv.Itoa(status)),
+		logging.String("duration", duration.String()),
+	}
+	if code != "" {
+		fields = append(fields, logging.String("error_code", code))
+	}
+	if err != nil {
+		fields = append(fields, logging.Error(err))
+		if logErr := h.Logger.Error("logout request failed", fields...); logErr != nil {
+			return
+		}
+		return
+	}
+	if logErr := h.Logger.Info("logout request completed", fields...); logErr != nil {
 		return
 	}
 }

@@ -22,7 +22,8 @@ var _ = Describe("Constructors", func() {
 		client := dynamodb.New(dynamodb.Options{})
 		store := NewRegistrationStore(client)
 		loginStore := NewLoginStore(client)
-		service := NewService(store, loginStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
+		logoutStore := NewLogoutStore(client)
+		service := NewService(store, loginStore, logoutStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
 		if service.Store != store || service.AccessTTL != 15*time.Minute || service.RefreshTTL != 7*24*time.Hour {
 			Expect(false).To(BeTrue(), fmt.Sprintf("unexpected service: %#v", service))
 		}
@@ -43,7 +44,8 @@ var _ = Describe("NewServicePortReturnsConfiguredService", func() {
 		client := dynamodb.New(dynamodb.Options{})
 		store := NewRegistrationStore(client)
 		loginStore := NewLoginStore(client)
-		service := NewServicePort(store, loginStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
+		logoutStore := NewLogoutStore(client)
+		service := NewServicePort(store, loginStore, logoutStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
 		if service == nil {
 			Expect(false).To(BeTrue(), fmt.Sprint("service port is nil"))
 		}
