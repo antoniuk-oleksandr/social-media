@@ -961,22 +961,22 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform format check
-        working-directory: infra/terraform
+        working-directory: infra/dev
         run: terraform fmt -check -recursive
 
       - name: Terraform init
-        working-directory: infra/terraform
+        working-directory: infra/dev
         run: terraform init -input=false
 
       - name: Terraform validate
-        working-directory: infra/terraform
+        working-directory: infra/dev
         run: terraform validate
 
       - name: Upload Terraform inputs
         uses: actions/upload-artifact@v4
         with:
           name: terraform-inputs
-          path: infra/terraform
+          path: infra/dev
           if-no-files-found: error
 
   plan:
@@ -1005,18 +1005,18 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform init
-        working-directory: infra/terraform
+        working-directory: infra/dev
         run: terraform init -input=false
 
       - name: Terraform plan
-        working-directory: infra/terraform
+        working-directory: infra/dev
         run: terraform plan -input=false -out=tfplan
 
       - name: Upload Terraform plan
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
-          path: infra/terraform/tfplan
+          path: infra/dev/tfplan
           if-no-files-found: error
 
   deploy:
@@ -1070,7 +1070,10 @@ Terraform configuration is the desired state for the application infrastructure.
 Recommended Terraform layout:
 
 ```text
-infra/terraform/
+infra/
+├── dev/
+│   └── *.tf
+└── local/
 ├── backend.tf
 ├── providers.tf
 ├── variables.tf
@@ -1086,7 +1089,7 @@ infra/terraform/
     └── prod.tfvars
 ```
 
-Use `/infra/terraform`, not `/_infra`. Terraform files use the `.tf` extension and are not compiled or imported by the Go compiler. Keeping infrastructure under the normal `infra` directory is clearer for Terraform, GitHub Actions, IDEs, and operators. The directory should contain Terraform files only; if Go helper code is ever needed, keep it in a separate Go package outside the Terraform configuration directory.
+Use `/infra/dev` for the initial development Terraform stack, not `/_infra`. Terraform files use the `.tf` extension and are not compiled or imported by the Go compiler. Keeping infrastructure under the normal `infra` directory is clearer for Terraform, GitHub Actions, IDEs, and operators. Each environment should contain Terraform files only; if Go helper code is ever needed, keep it in a separate Go package outside the Terraform configuration directory.
 
 Terraform should manage:
 

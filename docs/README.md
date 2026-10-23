@@ -11,6 +11,7 @@ This directory contains the product, architecture, API, planning, and operations
 - [Product](product/): goals, features, and MVP requirements.
 - [Architecture](architecture/): Go architecture and DynamoDB design.
 - [API](api/): HTTP endpoint contracts and examples.
+- [Development Terraform](../infra/dev/README.md): the initial dev AWS stack and deployment instructions.
 
 ## Local infrastructure
 
