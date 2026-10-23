@@ -116,10 +116,13 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "lambda:GetFunction",
       "lambda:GetFunctionConfiguration",
+      "lambda:ListVersionsByFunction",
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration"
     ]
-    resources = [aws_lambda_function.auth.arn]
+    resources = [
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.auth_function}"
+    ]
   }
 
   statement {
