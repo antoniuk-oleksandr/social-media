@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,6 +39,30 @@ func (ho) Generate() (string, string, error) { return "r", "rh", nil }
 type hstore struct{}
 
 func (hstore) Register(context.Context, auth.Registration) error { return nil }
+
+type recordingLogger struct {
+	message string
+	fields  []logging.Field
+}
+
+func (l *recordingLogger) Info(string, ...logging.Field) error { return nil }
+
+func (l *recordingLogger) Error(message string, fields ...logging.Field) error {
+	l.message = message
+	l.fields = fields
+	return nil
+}
+
+func (l *recordingLogger) Sync() error { return nil }
+
+func (l *recordingLogger) field(key string) (any, bool) {
+	for _, field := range l.fields {
+		if field.Key == key {
+			return field.Value, true
+		}
+	}
+	return nil, false
+}
 func handler() *auth.Handler {
 	i := &hi{}
 	s := &auth.Service{Store: hstore{}, Hasher: hs{}, IDs: i, Clock: hc{}, Access: ha{}, Opaque: ho{}, AccessTTL: 900 * time.Second, RefreshTTL: 7 * 24 * time.Hour}
@@ -177,6 +202,29 @@ var _ = Describe("RegisterHandlerMapsServiceErrors", func() {
 			}
 		}
 
+	})
+})
+
+var _ = Describe("RegisterHandlerLogsServiceFailures", func() {
+	It("logs the request ID and mapped dependency failure", func() {
+		logger := &recordingLogger{}
+		service := &countingService{err: auth.ErrDependencyUnavailable}
+		h := auth.Handler{Service: service, Logger: logger}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"alice","email":"alice@example.com","password":"123456789012","displayName":"Alice"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-Request-ID", "req-dependency")
+		w := httptest.NewRecorder()
+
+		h.Register(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
+		Expect(logger.message).To(Equal("registration request failed"))
+		requestID, found := logger.field("request_id")
+		Expect(found).To(BeTrue())
+		Expect(requestID).To(Equal("req-dependency"))
+		code, found := logger.field("error_code")
+		Expect(found).To(BeTrue())
+		Expect(code).To(Equal("SERVICE_UNAVAILABLE"))
 	})
 })
 

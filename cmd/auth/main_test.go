@@ -9,6 +9,7 @@ import (
 
 	authfx "github.com/antoniuk-oleksandr/social-media/internal/auth/fx"
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
+	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.uber.org/fx"
 )
@@ -25,6 +26,7 @@ var _ = Describe("CompositionGraphBuilds", func() {
 				platformfx.NewPasswordHasher,
 				platformfx.NewAccessTokenIssuer,
 				platformfx.NewOpaqueTokenGenerator,
+				platformlogging.New,
 				authfx.NewRegistrationStore,
 				authfx.NewServicePort,
 				authfx.NewHandler,

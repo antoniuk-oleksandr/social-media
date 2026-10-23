@@ -11,6 +11,7 @@ import (
 	platformclock "github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
 	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
+	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	platformpassword "github.com/antoniuk-oleksandr/social-media/internal/platform/password"
 	platformtoken "github.com/antoniuk-oleksandr/social-media/internal/platform/token"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -24,7 +25,9 @@ var _ = Describe("Constructors", func() {
 		if service.Store != store || service.AccessTTL != 15*time.Minute || service.RefreshTTL != 7*24*time.Hour {
 			Expect(false).To(BeTrue(), fmt.Sprintf("unexpected service: %#v", service))
 		}
-		handler := NewHandler(service)
+		logger, err := platformlogging.New()
+		Expect(err).NotTo(HaveOccurred())
+		handler := NewHandler(service, logger)
 		var router http.Handler = NewRouter(handler)
 		if router == nil {
 			Expect(false).To(BeTrue(), fmt.Sprint("router is nil"))

@@ -98,7 +98,11 @@ func (s Store) Register(ctx context.Context, r auth.Registration) error {
 
 func wrapDependencyError(operation string, err error) error {
 	if isDependencyUnavailable(err) {
-		return fmt.Errorf("%w: %s", auth.ErrDependencyUnavailable, operation)
+		// Preserve the domain classification while retaining the provider error
+		// for structured diagnostics. The HTTP layer exposes only the domain
+		// error, but logs can now identify missing tables, denied actions, timeouts,
+		// and other infrastructure causes.
+		return fmt.Errorf("%w: %s: %w", auth.ErrDependencyUnavailable, operation, err)
 	}
 	return fmt.Errorf("%s: %w", operation, err)
 }
