@@ -10,6 +10,7 @@ import (
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	jwtkey "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
+	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/password"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/token"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -55,8 +56,8 @@ func NewServicePort(
 	return NewService(store, hasher, ids, clk, access, opaque)
 }
 
-func NewHandler(service auth.ServicePort) auth.Handler {
-	return auth.Handler{Service: service}
+func NewHandler(service auth.ServicePort, logger logging.Logger) auth.Handler {
+	return auth.Handler{Service: service, Logger: logger}
 }
 
 func NewRouter(handler auth.Handler) http.Handler {

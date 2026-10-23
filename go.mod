@@ -18,6 +18,7 @@ require (
 	github.com/onsi/gomega v1.38.2
 	github.com/testcontainers/testcontainers-go/modules/dynamodb v0.39.0
 	go.uber.org/fx v1.24.0
+	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.58.0
 )
 
@@ -87,7 +88,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	go.uber.org/zap v1.26.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.61.0 // indirect

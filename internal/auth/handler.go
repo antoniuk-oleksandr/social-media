@@ -4,17 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/antoniuk-oleksandr/social-media/internal/shared/httpjson"
 	"net/http"
+	"time"
+
+	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	"github.com/antoniuk-oleksandr/social-media/internal/shared/httpjson"
 )
 
 type ServicePort interface {
 	Register(context.Context, RegisterCommand) (RegisterResult, error)
 }
 
-type Handler struct{ Service ServicePort }
+type Handler struct {
+	Service ServicePort
+	Logger  logging.Logger
+}
 
 func (h Handler) Register(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	rid := r.Header.Get("X-Request-ID")
 	if rid == "" {
 		rid = "req-local"
@@ -44,11 +51,21 @@ func (h Handler) Register(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(e, ErrDependencyUnavailable):
 			code, status, msg = "SERVICE_UNAVAILABLE", http.StatusServiceUnavailable, "Service temporarily unavailable"
 		}
+		h.logRegistrationFailure(rid, code, status, e, time.Since(startedAt))
 		writeErr(w, status, code, msg, rid)
 		return
 	}
 	out := RegisterResponse{User: UserResponse{res.User.ID, res.User.Username, res.User.Email, res.User.DisplayName, string(res.User.Role), res.User.CreatedAt.UTC().Format("2006-01-02T15:04:05Z")}, AccessToken: res.Tokens.AccessToken, RefreshToken: res.Tokens.RefreshToken, TokenType: "Bearer", ExpiresIn: res.Tokens.ExpiresIn, RefreshExpiresIn: res.Tokens.RefreshExpiresIn}
 	writeJSON(w, http.StatusCreated, out, rid)
+}
+
+func (h Handler) logRegistrationFailure(requestID, code string, status int, err error, duration time.Duration) {
+	if h.Logger == nil {
+		return
+	}
+	if logErr := h.Logger.Error("registration request failed", logging.String("request_id", requestID), logging.String("route", "POST /api/v1/auth/register"), logging.String("error_code", code), logging.String("status", http.StatusText(status)), logging.String("duration", duration.String()), logging.Error(err)); logErr != nil {
+		return
+	}
 }
 func writeErr(w http.ResponseWriter, status int, code, msg, rid string) {
 	writeJSON(w, status, ErrorResponse{Error: ErrorBody{Code: code, Message: msg, RequestID: rid}}, rid)

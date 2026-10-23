@@ -9,6 +9,7 @@ import (
 	authfx "github.com/antoniuk-oleksandr/social-media/internal/auth/fx"
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
+	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/aws/aws-lambda-go/lambda"
 	"go.uber.org/fx"
 )
@@ -25,6 +26,7 @@ func main() {
 			platformfx.NewPasswordHasher,
 			platformfx.NewConfiguredAccessTokenIssuer,
 			platformfx.NewOpaqueTokenGenerator,
+			platformlogging.New,
 			authfx.NewRegistrationStore,
 			authfx.NewServicePort,
 			authfx.NewHandler,
