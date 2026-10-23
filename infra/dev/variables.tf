@@ -97,6 +97,18 @@ variable "github_repository" {
   description = "GitHub repository allowed to assume the deployment role."
 }
 
+variable "github_repository_owner_id" {
+  type        = string
+  default     = "101298599"
+  description = "Immutable GitHub owner ID used in OIDC subject claims."
+}
+
+variable "github_repository_id" {
+  type        = string
+  default     = "1424609089"
+  description = "Immutable GitHub repository ID used in OIDC subject claims."
+}
+
 variable "github_environment" {
   type        = string
   default     = "dev"
