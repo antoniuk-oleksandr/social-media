@@ -3,8 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
-	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"time"
+
+	"github.com/antoniuk-oleksandr/social-media/internal/user"
 )
 
 var (
@@ -12,9 +13,11 @@ var (
 	ErrEmailTaken            = errors.New("email taken")
 	ErrValidation            = errors.New("validation failed")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
+	ErrInvalidCredentials    = errors.New("invalid credentials")
 )
 
 type RegisterCommand struct{ Username, Email, Password, DisplayName string }
+type LoginCommand struct{ Login, Password string }
 type RefreshSession struct {
 	TokenHash, SessionID, UserID string
 	CreatedAt, ExpiresAt         time.Time
@@ -34,7 +37,12 @@ type RegisterResult struct {
 type RegistrationStore interface {
 	Register(context.Context, Registration) error
 }
+type LoginStore interface {
+	FindByLogin(context.Context, string) (user.User, error)
+	CreateLoginSession(context.Context, RefreshSession) error
+}
 type PasswordHasher interface{ Hash(string) (string, error) }
+type PasswordVerifier interface{ Compare(string, string) error }
 type IDGenerator interface{ New() (string, error) }
 type Clock interface{ Now() time.Time }
 type AccessTokenIssuer interface {

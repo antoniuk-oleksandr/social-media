@@ -23,6 +23,15 @@ var _ = Describe("BcryptHashUsesConfiguredCost", func() {
 
 	})
 })
+var _ = Describe("BcryptCompare", func() {
+	It("accepts the original secret and rejects a different one", func() {
+		hash, err := (Bcrypt{Cost: 4}).Hash("secret")
+		Expect(err).NotTo(HaveOccurred())
+		Expect((Bcrypt{}).Compare(hash, "secret")).To(Succeed())
+		Expect((Bcrypt{}).Compare(hash, "wrong-secret")).NotTo(Succeed())
+	})
+})
+
 var _ = Describe("BcryptDefaultCostHashes", func() {
 	It("runs the test", func() {
 		h, e := (Bcrypt{}).Hash("secret")

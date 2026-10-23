@@ -84,7 +84,7 @@ func runDynamoDB(ctx context.Context) (container *tcdynamodb.DynamoDBContainer, 
 }
 
 func CreateTable(ctx context.Context, client *dynamodb.Client, tableName, hashKey string) error {
-	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+	input := &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{{
 			AttributeName: aws.String(hashKey), AttributeType: types.ScalarAttributeTypeS,
@@ -93,7 +93,18 @@ func CreateTable(ctx context.Context, client *dynamodb.Client, tableName, hashKe
 			AttributeName: aws.String(hashKey), KeyType: types.KeyTypeHash,
 		}},
 		BillingMode: types.BillingModePayPerRequest,
-	})
+	}
+	if hashKey == "userId" {
+		input.AttributeDefinitions = append(input.AttributeDefinitions,
+			types.AttributeDefinition{AttributeName: aws.String("email"), AttributeType: types.ScalarAttributeTypeS},
+			types.AttributeDefinition{AttributeName: aws.String("username"), AttributeType: types.ScalarAttributeTypeS},
+		)
+		input.GlobalSecondaryIndexes = []types.GlobalSecondaryIndex{
+			{IndexName: aws.String("EmailIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("email"), KeyType: types.KeyTypeHash}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
+			{IndexName: aws.String("UsernameIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("username"), KeyType: types.KeyTypeHash}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
+		}
+	}
+	_, err := client.CreateTable(ctx, input)
 	return err
 }
 

@@ -1,9 +1,18 @@
 package logging
 
 import (
+	"errors"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+var _ = Describe("Error field", func() {
+	It("represents nil and non-nil errors safely", func() {
+		Expect(Error(nil).Value).To(Equal("<nil>"))
+		Expect(Error(errors.New("boom")).Value).To(Equal("boom"))
+	})
+})
 
 var _ = Describe("Zap logger", func() {
 	It("constructs and consumes logging and sync operations", func() {
