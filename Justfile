@@ -17,6 +17,9 @@ auth-build:
     mkdir -p build/auth
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/auth/bootstrap ./cmd/auth
 
+auth-package: auth-build
+    (cd build/auth && zip -j ../auth-lambda.zip bootstrap)
+
 auth-request method path body headers='{"content-type":"application/json"}': local-up local-init auth-build
     python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
 
