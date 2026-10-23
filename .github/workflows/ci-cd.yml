@@ -125,10 +125,11 @@ jobs:
 
       - name: Plan Lambda deployment
         working-directory: infra/dev
-        run: terraform plan \
-          -refresh=false \
-          -target=aws_lambda_function.auth \
-          -out=../../build/terraform.tfplan
+        run: |
+          terraform plan \
+            -refresh=false \
+            -target=aws_lambda_function.auth \
+            -out=../../build/terraform.tfplan
 
       - name: Apply Lambda deployment
         working-directory: infra/dev
