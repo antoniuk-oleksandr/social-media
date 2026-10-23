@@ -53,3 +53,95 @@ resource "aws_iam_role_policy" "auth_lambda" {
   role   = aws_iam_role.auth_lambda.id
   policy = data.aws_iam_policy_document.auth_lambda.json
 }
+
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+data "aws_iam_policy_document" "github_actions_assume_role" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Federated"
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
+    }
+
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:environment:${var.github_environment}"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions_deploy" {
+  name               = var.github_actions_role_name
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
+}
+
+data "aws_iam_policy_document" "github_actions_deploy" {
+  statement {
+    sid       = "UseTerraformState"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}"]
+  }
+
+  statement {
+    sid    = "ReadWriteTerraformState"
+    effect = "Allow"
+    actions = [
+      "s3:DeleteObject",
+      "s3:GetObject",
+      "s3:PutObject"
+    ]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}/*"]
+  }
+
+  statement {
+    sid    = "DeployAuthLambda"
+    effect = "Allow"
+    actions = [
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration"
+    ]
+    resources = [aws_lambda_function.auth.arn]
+  }
+
+  statement {
+    sid       = "PassAuthLambdaRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.auth_lambda.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["lambda.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "ReadSigningKeyParameter"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_deploy" {
+  name   = "${var.github_actions_role_name}-policy"
+  role   = aws_iam_role.github_actions_deploy.id
+  policy = data.aws_iam_policy_document.github_actions_deploy.json
+}

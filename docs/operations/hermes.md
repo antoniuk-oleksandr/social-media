@@ -26,7 +26,8 @@ generated binaries are written under `infra/local`.
 Use SAM through the Justfile without starting an application HTTP server:
 
 ```bash
-just auth-run
+just auth-request POST /api/v1/auth/register \
+  '{"username":"alice","email":"alice@example.com","password":"secure-password","displayName":"Alice"}'
 ```
 
 For an arbitrary API Gateway request, provide the method, path, body, and

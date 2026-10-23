@@ -22,14 +22,45 @@ updates.
 From the repository root, create the local artifact with:
 
 ```bash
-just auth-package
+just build
 ```
 
 ## Terraform state
 
-This environment currently uses Terraform's local state, matching the
-project's existing environment layout. State files are ignored by Git. A
-remote backend can be introduced later as a separate state-migration task.
+CI/CD uses an S3 backend with native S3 lockfiles. The state bucket is created
+automatically by the local-state bootstrap in `infra/dev/bootstrap`. The
+bootstrap bucket has versioning enabled, public access blocked, and encryption
+enabled.
+
+The Justfile performs the bootstrap and backend migration automatically:
+
+```bash
+just terraform-init-dev
+```
+
+`backend.hcl` contains only non-secret backend settings. Do not put backend
+credentials, state files, or secrets in it.
+
+The workflow refuses to deploy when the remote state is empty, preventing an
+accidental second copy of the development resources.
+
+## GitHub Actions deployment
+
+The workflow in `.github/workflows/ci-cd.yml` runs tests, the 90% coverage
+gate, integration tests, Terraform validation, ARM64 Lambda packaging, and a
+targeted Terraform plan/apply for the Lambda function on pushes to `dev`. It
+uses GitHub OIDC rather than AWS access keys. It does not provision or modify
+API Gateway, DynamoDB, S3, IAM, SSM, or CloudWatch resources during code
+deployment.
+
+Configure these variables in the GitHub `dev` environment:
+
+- `AWS_REGION`
+- `AWS_DEPLOY_ROLE_ARN`
+
+The deploy role needs access to the Terraform state bucket, the deployed AWS
+resources, and `ssm:GetParameter` for the existing JWT signing-key parameter.
+The signing key is read from SSM at deployment time; it is not stored in GitHub.
 
 ## Secret environment file
 
@@ -59,6 +90,15 @@ terraform validate
 terraform plan -out=tfplan
 terraform apply tfplan
 ```
+
+To destroy both the application stack and the Terraform bootstrap resources:
+
+```bash
+just terraform-destroy-dev
+```
+
+This destroys the main `dev` resources first, then removes the Terraform state
+bucket. The next deployment will bootstrap a new state bucket automatically.
 
 The SSM parameter value is sensitive Terraform state, so protect the local
 state file and migrate to an encrypted remote backend before production.

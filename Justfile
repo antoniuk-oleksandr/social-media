@@ -17,16 +17,29 @@ auth-build:
     mkdir -p build/auth
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/auth/bootstrap ./cmd/auth
 
-auth-package: auth-build
-    (cd build/auth && zip -j ../auth-lambda.zip bootstrap)
+lambda-package:
+    bash scripts/package_lambdas.sh
+
+build: lambda-package
 
 auth-request method path body headers='{"content-type":"application/json"}': local-up local-init auth-build
     python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
 
-auth-invoke: local-up local-init auth-build
-    python3 infra/local/invoke.py 'POST' '/api/v1/auth/register' '{"username":"alice","email":"alice@example.com","password":"secure-password","displayName":"Alice"}' '{"content-type":"application/json"}'
+terraform-bootstrap-dev:
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap init -input=false
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap apply -auto-approve -input=false
 
-auth-run: auth-invoke
+terraform-init-dev: terraform-bootstrap-dev
+    test -f infra/dev/backend.hcl
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev init -migrate-state -input=false -backend-config=backend.hcl
+
+terraform-deploy-dev: build terraform-init-dev
+    test -f infra/dev/.env
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev apply
+
+terraform-destroy-dev: terraform-init-dev
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev destroy -auto-approve -input=false
+    set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap destroy -auto-approve -input=false
 
 local-down:
     {{compose}} down
@@ -36,9 +49,6 @@ coverage:
     bash scripts/check_coverage.sh coverage.out
 
 integration:
-    GOTOOLCHAIN=auto go test -race -tags=integration ./tests/integration/...
-
-integration-internal:
     GOTOOLCHAIN=auto go test -race -tags=integration ./tests/integration/...
 
 hermes-setup:
