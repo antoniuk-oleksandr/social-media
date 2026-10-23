@@ -78,7 +78,10 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${var.github_environment}"]
+      values = [
+        "repo:${var.github_repository}:environment:${var.github_environment}",
+        "repo:${var.github_repository}:ref:refs/heads/${var.github_environment}",
+      ]
     }
   }
 }
