@@ -33,6 +33,7 @@ data "aws_iam_policy_document" "auth_lambda" {
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query",
+      "dynamodb:UpdateItem",
       "dynamodb:TransactWriteItems"
     ]
     resources = [
