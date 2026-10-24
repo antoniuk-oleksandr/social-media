@@ -21,7 +21,60 @@ type Service struct {
 	Access                AccessTokenIssuer
 	Opaque                OpaqueTokenGenerator
 	LogoutStore           LogoutStore
+	RefreshStore          RefreshStore
+	Users                 UserLookup
 	AccessTTL, RefreshTTL time.Duration
+}
+
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
+	if strings.TrimSpace(refreshToken) == "" {
+		return TokenPair{}, fmt.Errorf("%w: refresh token is required", ErrValidation)
+	}
+	if s.RefreshStore == nil || s.Users == nil || s.Clock == nil || s.Access == nil || s.Opaque == nil {
+		return TokenPair{}, ErrDependencyUnavailable
+	}
+	hash := HashRefreshToken(refreshToken)
+	session, err := s.RefreshStore.GetRefreshSession(ctx, hash)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRefreshToken) {
+			return TokenPair{}, s.revokeRefreshFamilyAfterInvalid(ctx, hash, err)
+		}
+		return TokenPair{}, err
+	}
+	now := s.Clock.Now()
+	u, err := s.Users.FindByID(ctx, session.UserID)
+	if err != nil {
+		if errors.Is(err, user.ErrNotFound) {
+			return TokenPair{}, ErrInvalidRefreshToken
+		}
+		return TokenPair{}, err
+	}
+	if u.Status != user.StatusActive {
+		return TokenPair{}, ErrInvalidRefreshToken
+	}
+	access, err := s.Access.Issue(ctx, u, now)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	plain, newHash, err := s.Opaque.Generate()
+	if err != nil {
+		return TokenPair{}, err
+	}
+	err = s.RefreshStore.RotateRefreshSession(ctx, hash, RefreshSession{TokenHash: newHash, SessionID: session.SessionID, UserID: session.UserID, CreatedAt: now, ExpiresAt: now.Add(s.RefreshTTL)})
+	if err != nil {
+		if errors.Is(err, ErrInvalidRefreshToken) {
+			return TokenPair{}, s.revokeRefreshFamilyAfterInvalid(ctx, hash, err)
+		}
+		return TokenPair{}, err
+	}
+	return TokenPair{AccessToken: access, RefreshToken: plain, ExpiresIn: int64(s.AccessTTL / time.Second), RefreshExpiresIn: int64(s.RefreshTTL / time.Second)}, nil
+}
+
+func (s *Service) revokeRefreshFamilyAfterInvalid(ctx context.Context, hash string, original error) error {
+	if revokeErr := s.RefreshStore.RevokeSessionFamilyByHash(ctx, hash); revokeErr != nil && !errors.Is(revokeErr, ErrInvalidRefreshToken) {
+		return fmt.Errorf("%w: revoke refresh session family: %v", ErrDependencyUnavailable, revokeErr)
+	}
+	return original
 }
 
 func (s *Service) Logout(ctx context.Context, refreshToken string) error {

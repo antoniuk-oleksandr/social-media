@@ -50,7 +50,13 @@ func (f *fakeAPI) GetItem(_ context.Context, in *dynamodb.GetItemInput, _ ...fun
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
-	key := in.Key["uniqueKey"].(*types.AttributeValueMemberS).Value
+	keyName := "uniqueKey"
+	if _, ok := in.Key["tokenHash"]; ok {
+		keyName = "tokenHash"
+	} else if _, ok := in.Key["userId"]; ok {
+		keyName = "userId"
+	}
+	key := in.Key[keyName].(*types.AttributeValueMemberS).Value
 	return &dynamodb.GetItemOutput{Item: f.items[key]}, nil
 }
 
@@ -355,6 +361,39 @@ var _ = Describe("LookupReservationConflictPropagatesSecondLookupError", func() 
 		if _, err := store.lookupReservationConflict(context.Background(), "email", "username"); err == nil || !strings.Contains(err.Error(), "second lookup") {
 			Expect(false).To(BeTrue(), fmt.Sprintf("lookup error = %v", err))
 		}
+	})
+})
 
+var _ = Describe("FindByID", func() {
+	It("maps a stored user and uses a strongly consistent lookup", func() {
+		created := time.Unix(100, 0).UTC()
+		api := &fakeAPI{items: map[string]map[string]types.AttributeValue{
+			"user-1": {
+				"userId": &types.AttributeValueMemberS{Value: "user-1"}, "username": &types.AttributeValueMemberS{Value: "alice"},
+				"email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"},
+				"displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"},
+				"status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
+			},
+		}}
+		got, err := (Store{Client: api, UsersTable: "users"}).FindByID(context.Background(), "user-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.ID).To(Equal("user-1"))
+		Expect(got.CreatedAt).To(Equal(created))
+	})
+
+	It("maps missing, dependency, and malformed records", func() {
+		missing := &fakeAPI{items: map[string]map[string]types.AttributeValue{}}
+		_, err := (Store{Client: missing}).FindByID(context.Background(), "missing")
+		Expect(err).To(MatchError(user.ErrNotFound))
+
+		dependency := &fakeAPI{getErr: testNetworkError{}}
+		_, err = (Store{Client: dependency}).FindByID(context.Background(), "user")
+		Expect(errors.Is(err, auth.ErrDependencyUnavailable)).To(BeTrue())
+
+		malformed := &fakeAPI{items: map[string]map[string]types.AttributeValue{
+			"user": {"createdAt": &types.AttributeValueMemberS{Value: "not-a-time"}},
+		}}
+		_, err = (Store{Client: malformed}).FindByID(context.Background(), "user")
+		Expect(err).To(MatchError(ContainSubstring("decode user")))
 	})
 })

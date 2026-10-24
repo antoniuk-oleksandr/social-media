@@ -30,6 +30,8 @@ func main() {
 			authfx.NewRegistrationStore,
 			authfx.NewLoginStore,
 			authfx.NewLogoutStore,
+			authfx.NewRefreshStore,
+			authfx.NewUserLookup,
 			authfx.NewServicePort,
 			authfx.NewHandler,
 			authfx.NewRouter,

@@ -23,10 +23,14 @@ var _ = Describe("Constructors", func() {
 		store := NewRegistrationStore(client)
 		loginStore := NewLoginStore(client)
 		logoutStore := NewLogoutStore(client)
-		service := NewService(store, loginStore, logoutStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
-		if service.Store != store || service.AccessTTL != 15*time.Minute || service.RefreshTTL != 7*24*time.Hour {
-			Expect(false).To(BeTrue(), fmt.Sprintf("unexpected service: %#v", service))
-		}
+		refreshStore := NewRefreshStore(client)
+		users := NewUserLookup(client)
+		service := NewService(store, loginStore, logoutStore, refreshStore, users, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
+		Expect(service.Store).To(Equal(store))
+		Expect(service.RefreshStore).To(Equal(refreshStore))
+		Expect(service.Users).To(Equal(users))
+		Expect(service.AccessTTL).To(Equal(15 * time.Minute))
+		Expect(service.RefreshTTL).To(Equal(7 * 24 * time.Hour))
 		logger, err := platformlogging.New()
 		Expect(err).NotTo(HaveOccurred())
 		handler := NewHandler(service, logger)
@@ -45,7 +49,9 @@ var _ = Describe("NewServicePortReturnsConfiguredService", func() {
 		store := NewRegistrationStore(client)
 		loginStore := NewLoginStore(client)
 		logoutStore := NewLogoutStore(client)
-		service := NewServicePort(store, loginStore, logoutStore, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
+		refreshStore := NewRefreshStore(client)
+		users := NewUserLookup(client)
+		service := NewServicePort(store, loginStore, logoutStore, refreshStore, users, platformpassword.Bcrypt{Cost: 4}, platformid.UUIDv7{}, platformclock.Real{}, platformjwt.Access{}, platformtoken.Opaque{})
 		if service == nil {
 			Expect(false).To(BeTrue(), fmt.Sprint("service port is nil"))
 		}
