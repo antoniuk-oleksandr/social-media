@@ -179,6 +179,13 @@ just hermes-logs
   both production code and tests, classifies findings, and routes fixes to Dev
   or Tester.
 
+For every public endpoint, the workflow must verify the complete deployment
+path: feature/Chi route, Lambda entry point, and Terraform
+`aws_apigatewayv2_route` in `infra/dev/api_gateway.tf`. A direct Lambda or SAM
+route is not enough; the endpoint is incomplete until API Gateway targets the
+correct Lambda integration and Terraform formatting, validation, and plan
+checks pass.
+
 For every implementation task, the parent Hermes session must delegate these
 stages sequentially against the same workspace:
 

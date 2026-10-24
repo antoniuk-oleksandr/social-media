@@ -18,6 +18,8 @@ Read the assigned task and the authoritative files under `../../docs/`, especial
 ## Review checklist
 
 - Endpoint method, route, request, response, status codes, and domain errors match the contract.
+- For every public endpoint, verify all three layers: feature/Chi router, Lambda entry point, and Terraform `aws_apigatewayv2_route` targeting the correct API Gateway integration. Missing Terraform routing is a high-severity production defect.
+- Verify API Gateway integration and Lambda invocation permission remain consistent with the new route.
 - Authentication, authorization, ownership, uniqueness, and state-transition rules are enforced.
 - Domain entities do not contain JSON or DynamoDB tags.
 - Services do not depend on DTOs, persistence models, HTTP types, Chi, Lambda, or AWS SDK types.
