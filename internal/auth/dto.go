@@ -13,6 +13,16 @@ type LoginRequest struct {
 type LogoutRequest struct {
 	RefreshToken string `json:"refreshToken"`
 }
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
+}
+type RefreshResponse struct {
+	AccessToken      string `json:"accessToken"`
+	RefreshToken     string `json:"refreshToken"`
+	TokenType        string `json:"tokenType"`
+	ExpiresIn        int64  `json:"expiresIn"`
+	RefreshExpiresIn int64  `json:"refreshExpiresIn"`
+}
 
 type UserResponse struct {
 	ID          string `json:"id"`

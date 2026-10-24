@@ -221,6 +221,25 @@ func (s Store) FindByLogin(ctx context.Context, login string) (user.User, error)
 	return user.User{ID: attributeString(item, "userId"), Username: attributeString(item, "username"), Email: attributeString(item, "email"), PasswordHash: attributeString(item, "passwordHash"), DisplayName: attributeString(item, "displayName"), Role: user.Role(attributeString(item, "role")), Status: user.Status(attributeString(item, "status")), CreatedAt: created}, nil
 }
 
+func (s Store) FindByID(ctx context.Context, id string) (user.User, error) {
+	out, err := s.Client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName:      aws.String(s.UsersTable),
+		Key:            map[string]types.AttributeValue{"userId": &types.AttributeValueMemberS{Value: id}},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return user.User{}, wrapDependencyError("find user", err)
+	}
+	if len(out.Item) == 0 {
+		return user.User{}, user.ErrNotFound
+	}
+	created, err := time.Parse(time.RFC3339, attributeString(out.Item, "createdAt"))
+	if err != nil {
+		return user.User{}, fmt.Errorf("decode user: %w", err)
+	}
+	return user.User{ID: attributeString(out.Item, "userId"), Username: attributeString(out.Item, "username"), Email: attributeString(out.Item, "email"), PasswordHash: attributeString(out.Item, "passwordHash"), DisplayName: attributeString(out.Item, "displayName"), Role: user.Role(attributeString(out.Item, "role")), Status: user.Status(attributeString(out.Item, "status")), CreatedAt: created}, nil
+}
+
 func (s Store) CreateLoginSession(ctx context.Context, r auth.RefreshSession) error {
 	_, err := s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
 		{ConditionCheck: &types.ConditionCheck{
@@ -349,6 +368,45 @@ func (s Store) GetRefreshSession(ctx context.Context, tokenHash string) (auth.Re
 		CreatedAt: createdAt,
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+func (s Store) RotateRefreshSession(ctx context.Context, oldHash string, next auth.RefreshSession) error {
+	now := s.now()
+	_, err := s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
+		{ConditionCheck: &types.ConditionCheck{
+			TableName: aws.String(s.RefreshTable),
+			Key: map[string]types.AttributeValue{
+				"tokenHash": &types.AttributeValueMemberS{Value: familyMarkerPrefix + next.SessionID},
+			},
+			ConditionExpression: aws.String("attribute_not_exists(tokenHash)"),
+		}},
+		{Update: &types.Update{TableName: aws.String(s.RefreshTable), Key: map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: oldHash}}, UpdateExpression: aws.String("SET #status = :consumed, consumedAt = :now, version = version + :one"), ConditionExpression: aws.String("#status = :active AND expiresAt > :now"), ExpressionAttributeNames: map[string]string{"#status": "status"}, ExpressionAttributeValues: map[string]types.AttributeValue{":active": &types.AttributeValueMemberS{Value: "active"}, ":consumed": &types.AttributeValueMemberS{Value: "consumed"}, ":now": &types.AttributeValueMemberN{Value: strconv.FormatInt(now.Unix(), 10)}, ":one": &types.AttributeValueMemberN{Value: "1"}}}},
+		{Put: &types.Put{TableName: aws.String(s.RefreshTable), Item: map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: next.TokenHash}, "sessionId": &types.AttributeValueMemberS{Value: next.SessionID}, "userId": &types.AttributeValueMemberS{Value: next.UserID}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberN{Value: strconv.FormatInt(next.CreatedAt.Unix(), 10)}, "expiresAt": &types.AttributeValueMemberN{Value: strconv.FormatInt(next.ExpiresAt.Unix(), 10)}, "ttl": &types.AttributeValueMemberN{Value: strconv.FormatInt(next.ExpiresAt.Unix(), 10)}, "version": &types.AttributeValueMemberN{Value: "1"}}, ConditionExpression: aws.String("attribute_not_exists(tokenHash)")}},
+	}})
+	if err != nil {
+		if isConditionalTransactionFailure(err) {
+			return auth.ErrInvalidRefreshToken
+		}
+		return wrapDependencyError("rotate refresh session", err)
+	}
+	return nil
+}
+
+func (s Store) RevokeSessionFamilyByHash(ctx context.Context, tokenHash string) error {
+	item, err := s.Client.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String(s.RefreshTable), Key: map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: tokenHash}}, ConsistentRead: aws.Bool(true)})
+	if err != nil {
+		return wrapDependencyError("find refresh replay", err)
+	}
+	sessionID := attributeString(item.Item, "sessionId")
+	if sessionID == "" {
+		return auth.ErrInvalidRefreshToken
+	}
+	now := s.now()
+	_, err = s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{{Put: &types.Put{TableName: aws.String(s.RefreshTable), Item: map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: familyMarkerPrefix + sessionID}, "sessionId": &types.AttributeValueMemberS{Value: sessionID}, "status": &types.AttributeValueMemberS{Value: "revoked"}, "ttl": &types.AttributeValueMemberN{Value: strconv.FormatInt(now.Add(7*24*time.Hour).Unix(), 10)}}, ConditionExpression: aws.String("attribute_not_exists(tokenHash) OR #status = :active"), ExpressionAttributeNames: map[string]string{"#status": "status"}, ExpressionAttributeValues: map[string]types.AttributeValue{":active": &types.AttributeValueMemberS{Value: "active"}}}}}})
+	if err != nil && !isConditionalTransactionFailure(err) {
+		return wrapDependencyError("revoke refresh replay", err)
+	}
+	return nil
 }
 
 func (s Store) now() time.Time {

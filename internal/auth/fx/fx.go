@@ -43,10 +43,20 @@ func NewLogoutStore(client *dynamodb.Client) auth.LogoutStore {
 	}
 }
 
+func NewRefreshStore(client *dynamodb.Client) auth.RefreshStore {
+	return authdb.Store{Client: client, UsersTable: platformfx.Value("USERS_TABLE", "social-media-local-users"), UniquesTable: platformfx.Value("UNIQUES_TABLE", "social-media-local-uniques"), RefreshTable: platformfx.Value("REFRESH_TABLE", "social-media-local-refresh-sessions")}
+}
+
+func NewUserLookup(client *dynamodb.Client) auth.UserLookup {
+	return authdb.Store{Client: client, UsersTable: platformfx.Value("USERS_TABLE", "social-media-local-users"), UniquesTable: platformfx.Value("UNIQUES_TABLE", "social-media-local-uniques"), RefreshTable: platformfx.Value("REFRESH_TABLE", "social-media-local-refresh-sessions")}
+}
+
 func NewService(
 	store auth.RegistrationStore,
 	loginStore auth.LoginStore,
 	logoutStore auth.LogoutStore,
+	refreshStore auth.RefreshStore,
+	users auth.UserLookup,
 	hasher password.Bcrypt,
 	ids id.UUIDv7,
 	clk clock.Real,
@@ -54,17 +64,19 @@ func NewService(
 	opaque token.Opaque,
 ) *auth.Service {
 	return &auth.Service{
-		Store:       store,
-		LoginStore:  loginStore,
-		LogoutStore: logoutStore,
-		Hasher:      hasher,
-		Verifier:    hasher,
-		IDs:         ids,
-		Clock:       clk,
-		Access:      access,
-		Opaque:      opaque,
-		AccessTTL:   15 * time.Minute,
-		RefreshTTL:  7 * 24 * time.Hour,
+		Store:        store,
+		LoginStore:   loginStore,
+		LogoutStore:  logoutStore,
+		RefreshStore: refreshStore,
+		Users:        users,
+		Hasher:       hasher,
+		Verifier:     hasher,
+		IDs:          ids,
+		Clock:        clk,
+		Access:       access,
+		Opaque:       opaque,
+		AccessTTL:    15 * time.Minute,
+		RefreshTTL:   7 * 24 * time.Hour,
 	}
 }
 
@@ -72,13 +84,15 @@ func NewServicePort(
 	store auth.RegistrationStore,
 	loginStore auth.LoginStore,
 	logoutStore auth.LogoutStore,
+	refreshStore auth.RefreshStore,
+	users auth.UserLookup,
 	hasher password.Bcrypt,
 	ids id.UUIDv7,
 	clk clock.Real,
 	access jwtkey.Access,
 	opaque token.Opaque,
 ) auth.ServicePort {
-	return NewService(store, loginStore, logoutStore, hasher, ids, clk, access, opaque)
+	return NewService(store, loginStore, logoutStore, refreshStore, users, hasher, ids, clk, access, opaque)
 }
 
 func NewHandler(service auth.ServicePort, logger logging.Logger) auth.Handler {

@@ -23,6 +23,61 @@ type Handler struct {
 	Logger  logging.Logger
 }
 
+func (h Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusOK
+	logCode := ""
+	var logErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logRefreshRequest(rid, status, logCode, logErr, time.Since(startedAt))
+	}()
+	if r.Header.Get("Content-Type") != "application/json" {
+		status, logCode = http.StatusUnsupportedMediaType, "INVALID_JSON"
+		writeErr(loggedWriter, status, logCode, "Content-Type must be application/json", rid)
+		return
+	}
+	var req RefreshRequest
+	if err := httpjson.Decode(r, &req); errors.Is(err, httpjson.ErrPayloadTooLarge) {
+		status, logCode = http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE"
+		writeErr(loggedWriter, status, logCode, "Request body is too large", rid)
+		return
+	} else if err != nil {
+		status, logCode = http.StatusBadRequest, "INVALID_JSON"
+		writeErr(loggedWriter, status, logCode, "Malformed JSON", rid)
+		return
+	}
+	refresher, ok := h.Service.(interface {
+		Refresh(context.Context, string) (TokenPair, error)
+	})
+	if !ok {
+		status, logCode = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"
+		logErr = ErrDependencyUnavailable
+		writeErr(loggedWriter, status, logCode, "Service temporarily unavailable", rid)
+		return
+	}
+	res, err := refresher.Refresh(r.Context(), req.RefreshToken)
+	if err != nil {
+		code, mappedStatus, msg := "INTERNAL_ERROR", http.StatusInternalServerError, "Internal server error"
+		switch {
+		case errors.Is(err, ErrValidation):
+			code, mappedStatus, msg = "INVALID_REQUEST", http.StatusBadRequest, "Invalid refresh request"
+		case errors.Is(err, ErrInvalidRefreshToken):
+			code, mappedStatus, msg = "INVALID_REFRESH_TOKEN", http.StatusUnauthorized, "Invalid refresh token"
+		case errors.Is(err, ErrDependencyUnavailable):
+			code, mappedStatus, msg = "SERVICE_UNAVAILABLE", http.StatusServiceUnavailable, "Service temporarily unavailable"
+		}
+		status, logCode, logErr = mappedStatus, code, err
+		writeErr(loggedWriter, status, code, msg, rid)
+		return
+	}
+	writeJSON(loggedWriter, http.StatusOK, RefreshResponse{AccessToken: res.AccessToken, RefreshToken: res.RefreshToken, TokenType: "Bearer", ExpiresIn: res.ExpiresIn, RefreshExpiresIn: res.RefreshExpiresIn}, rid)
+}
+
 func (h Handler) Login(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	rid := requestID(r)
@@ -186,6 +241,31 @@ func (h Handler) logLogoutRequest(requestID string, status int, code string, err
 		return
 	}
 	if logErr := h.Logger.Info("logout request completed", fields...); logErr != nil {
+		return
+	}
+}
+
+func (h Handler) logRefreshRequest(requestID string, status int, code string, err error, duration time.Duration) {
+	if h.Logger == nil {
+		return
+	}
+	fields := []logging.Field{
+		logging.String("request_id", requestID),
+		logging.String("route", "POST /api/v1/auth/refresh"),
+		logging.String("status", strconv.Itoa(status)),
+		logging.String("duration", duration.String()),
+	}
+	if code != "" {
+		fields = append(fields, logging.String("error_code", code))
+	}
+	if err != nil {
+		fields = append(fields, logging.Error(err))
+		if logErr := h.Logger.Error("refresh request failed", fields...); logErr != nil {
+			return
+		}
+		return
+	}
+	if logErr := h.Logger.Info("refresh request completed", fields...); logErr != nil {
 		return
 	}
 }

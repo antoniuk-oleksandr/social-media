@@ -47,6 +47,11 @@ type LogoutStore interface {
 }
 type RefreshStore interface {
 	GetRefreshSession(context.Context, string) (RefreshSession, error)
+	RotateRefreshSession(context.Context, string, RefreshSession) error
+	RevokeSessionFamilyByHash(context.Context, string) error
+}
+type UserLookup interface {
+	FindByID(context.Context, string) (user.User, error)
 }
 type PasswordHasher interface{ Hash(string) (string, error) }
 type PasswordVerifier interface{ Compare(string, string) error }
