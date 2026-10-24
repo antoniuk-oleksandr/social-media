@@ -6,6 +6,7 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"time"
@@ -137,5 +138,46 @@ var _ = Describe("RouterRegistersEndpoint", func() {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %d", w.Code))
 		}
 
+	})
+})
+
+var _ = Describe("AdditionalServiceAndLoginCoverage", func() {
+	It("rejects oversized login payloads before invoking the service", func() {
+		service := &countingService{}
+		h := auth.Handler{Service: service}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice","password":"`+strings.Repeat("x", 64<<10)+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		h.Login(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(errorBody(w).Error.Code).To(Equal("PAYLOAD_TOO_LARGE"))
+		Expect(service.calls).To(Equal(0))
+	})
+
+	It("rejects empty and unwired refresh requests without touching dependencies", func() {
+		service := &auth.Service{}
+
+		_, err := service.Refresh(context.Background(), "  ")
+		Expect(err).To(MatchError(ContainSubstring("refresh token is required")))
+
+		_, err = service.Refresh(context.Background(), "token")
+		Expect(err).To(MatchError(auth.ErrDependencyUnavailable))
+	})
+
+	It("maps a deleted refresh-session user to an invalid token", func() {
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "deleted", Status: "active"}}
+		service := &auth.Service{
+			RefreshStore: store,
+			Users:        refreshUserLookup{err: user.ErrNotFound},
+			Clock:        refreshClock{now: time.Unix(100, 0)},
+			Access:       &refreshAccess{},
+			Opaque:       &refreshOpaque{},
+		}
+
+		_, err := service.Refresh(context.Background(), "deleted-user-token")
+		Expect(err).To(MatchError(auth.ErrInvalidRefreshToken))
+		Expect(store.rotated).To(BeFalse())
 	})
 })
