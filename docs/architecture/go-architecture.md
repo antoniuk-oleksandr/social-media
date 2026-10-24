@@ -877,6 +877,14 @@ The pipeline must:
 
 Terraform manages Lambda functions, configuration, API Gateway resources, IAM roles, DynamoDB tables, log groups, and related infrastructure. GitHub Actions may use `aws lambda update-function-code` only to deploy the compiled application ZIP to an already-created Terraform-managed Lambda function.
 
+Every public endpoint must be registered in all deployment layers: the feature
+router, the Lambda composition root, and an `aws_apigatewayv2_route` in
+`infra/dev/api_gateway.tf` targeting the correct Lambda integration. A route
+that exists only in Chi or inside the Lambda is not reachable through the AWS
+API Gateway and is an incomplete endpoint implementation. Endpoint changes
+must include the corresponding Terraform route and pass Terraform formatting,
+validation, and plan review.
+
 Because the project has multiple Lambda entry points, build one archive per command:
 
 ```text

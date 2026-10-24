@@ -29,11 +29,13 @@ Implement the assigned GitHub Project endpoint task. Work from `/workspace` insi
 - Keep `cmd/*/main.go` thin: one documented Lambda composition function with direct providers and lifecycle management only.
 - Consume every error; never discard an error or use `_ , data := foo()`.
 - Never log passwords, tokens, signing keys, authorization headers, or request secrets.
-- Do not modify Terraform, CI/CD, or unrelated features unless the assigned endpoint requires it.
+- Do not modify Terraform, CI/CD, or unrelated features unless the assigned endpoint requires it. Every public endpoint requires the corresponding Terraform API Gateway route and integration; adding only a Chi route or Lambda handler is not sufficient.
 
 ## Completion
 
 - Implement the endpoint and its documented success/error behavior.
+- Update `infra/dev/api_gateway.tf` with the exact method/path route targeting the endpoint's Lambda integration. Inspect the deployed route set or Terraform plan to confirm the public route will exist after apply.
+- Run `terraform fmt -check` and `terraform validate` whenever endpoint work changes API Gateway or other Terraform files.
 - Add focused unit and handler tests.
 - Run formatting, vet, and the relevant test commands.
 - Verify with repository search that the changed entry point contains `fx.New` and `fx.Provide`, and that `go.mod` declares `go.uber.org/fx`.

@@ -19,8 +19,10 @@ Read [`api-endpoints.md`](../social-media-mvp/references/api-endpoints.md) for t
 8. Implement the DynamoDB adapter behind the repository interface and translate database errors into domain errors.
 9. Implement the handler with strict JSON decoding, request validation, authentication, request IDs, and explicit domain-error mapping.
 10. Register the route in the feature router and the correct Lambda entry point.
-11. Add unit, integration, and endpoint tests appropriate to the behavior.
-12. Enforce the Fx composition gate: the entry point must use `fx.New` plus `fx.Provide`; do not hand-wire adapters, services, handlers, or routers. If the existing entry point is manual, migrate it as part of the task before adding endpoint behavior.
+11. Register every deployed public route in the matching Terraform API Gateway configuration under `infra/dev`. A Chi/Lambda route without an `aws_apigatewayv2_route` is incomplete and must not be reported as implemented.
+12. Verify the API Gateway route targets the correct Lambda integration and run `terraform fmt -check` and `terraform validate` when infrastructure is changed.
+13. Add unit, integration, and endpoint tests appropriate to the behavior.
+14. Enforce the Fx composition gate: the entry point must use `fx.New` plus `fx.Provide`; do not hand-wire adapters, services, handlers, or routers. If the existing entry point is manual, migrate it as part of the task before adding endpoint behavior.
 
 ## Handler rules
 
@@ -33,6 +35,8 @@ Read [`api-endpoints.md`](../social-media-mvp/references/api-endpoints.md) for t
 
 - The task's endpoint contract is implemented without changing undocumented behavior.
 - Success and failure status codes match the catalog.
+- The route exists in the feature router, Lambda entry point, and Terraform-managed API Gateway route. These three route registrations are a single completion requirement.
+- API Gateway integration and Lambda permission changes are included when the endpoint is public.
 - Authorization and ownership rules are tested.
 - The service uses domain entities and repository ports.
 - Mappers cover every boundary.
