@@ -14,9 +14,14 @@ import (
 type fakeRepository struct {
 	value Post
 	err   error
+	id    string
 }
 
 func (f *fakeRepository) Create(_ context.Context, value Post) error { f.value = value; return f.err }
+func (f *fakeRepository) GetByID(_ context.Context, id string) (Post, error) {
+	f.id = id
+	return f.value, f.err
+}
 
 type fakeIDs struct {
 	value string
@@ -216,5 +221,118 @@ func TestHandlerMapsRepositoryFailureToServiceUnavailable(t *testing.T) {
 	handler.Create(w, r)
 	if w.Code != http.StatusServiceUnavailable || strings.Contains(w.Body.String(), "dependency unavailable") || !strings.Contains(w.Body.String(), `"code":"SERVICE_UNAVAILABLE"`) {
 		t.Fatalf("status/body = %d/%s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetByIDValidatesIDBeforeRepository(t *testing.T) {
+	repo := &fakeRepository{value: Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab"}}
+	service := NewService(repo, fakeIDs{}, fakeClock{})
+	if _, err := service.GetByID(context.Background(), "0192c5f4-7b2a-6abd-8def-1234567890ab"); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("error = %v, want ErrInvalidID", err)
+	}
+	if repo.id != "" {
+		t.Fatalf("repository called with invalid id %q", repo.id)
+	}
+
+	validID := "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	if _, err := service.GetByID(context.Background(), validID); err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if repo.id != validID {
+		t.Fatalf("repository id = %q, want %q", repo.id, validID)
+	}
+}
+
+func TestGetByIDRejectsNonCanonicalUUIDv7AtEndpoint(t *testing.T) {
+	validID := "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	for _, tc := range []struct {
+		name string
+		id   string
+	}{
+		{name: "uppercase UUID", id: "0192C5F4-7B2A-7ABD-8DEF-1234567890AB"},
+		{name: "numeric ID", id: "1234567890"},
+		{name: "malformed UUID structure", id: "0192c5f4-7b2a-7abd-8def-1234567890"},
+		{name: "invalid variant", id: "0192c5f4-7b2a-7abd-cdef-1234567890ab"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepository{value: Post{ID: validID}}
+			router := NewRouter(NewHandler(NewService(repo, fakeIDs{}, fakeClock{}), nil), fakeAuthenticator{})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/posts/"+tc.id, nil))
+
+			if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"code":"VALIDATION_FAILED"`) {
+				t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+			}
+			if repo.id != "" {
+				t.Fatalf("repository called with invalid id %q", repo.id)
+			}
+		})
+	}
+}
+
+func TestGetByIDRouterReturnsPostDTOWithoutAuthentication(t *testing.T) {
+	postValue := Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab", AuthorID: "0192c5f4-7b2a-7abc-8def-1234567890ab", Content: "Hello from GET", CreatedAt: time.Date(2026, 10, 18, 12, 35, 0, 0, time.UTC), CreatedAtEpoch: 1792326900000}
+	handler := NewHandler(NewService(&fakeRepository{value: postValue}, fakeIDs{}, fakeClock{}), nil)
+	router := NewRouter(handler, fakeAuthenticator{})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/posts/"+postValue.ID, nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 4 || body["id"] != postValue.ID || body["authorId"] != postValue.AuthorID || body["content"] != postValue.Content || body["createdAt"] != "2026-10-18T12:35:00Z" {
+		t.Fatalf("response DTO = %#v", body)
+	}
+}
+
+func TestGetByIDRouterPreservesMillisecondDTOPrecision(t *testing.T) {
+	createdAt := time.Date(2026, 10, 18, 12, 35, 0, 123000000, time.UTC)
+	value := Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab", AuthorID: "0192c5f4-7b2a-7abc-8def-1234567890ab", Content: "millisecond post", CreatedAt: createdAt, CreatedAtEpoch: createdAt.UnixMilli()}
+	router := NewRouter(NewHandler(NewService(&fakeRepository{value: value}, fakeIDs{}, fakeClock{}), nil), fakeAuthenticator{})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/posts/"+value.ID, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body Response
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.CreatedAt != "2026-10-18T12:35:00.123Z" {
+		t.Fatalf("createdAt = %q, want millisecond precision", body.CreatedAt)
+	}
+}
+
+func TestGetByIDMapsDomainErrorsAndDoesNotLeakDetails(t *testing.T) {
+	validID := "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	for _, tc := range []struct {
+		name       string
+		err        error
+		path       string
+		wantStatus int
+		wantCode   string
+		leak       string
+	}{
+		{name: "invalid id", path: "/api/v1/posts/not-an-id", wantStatus: http.StatusUnprocessableEntity, wantCode: "VALIDATION_FAILED"},
+		{name: "missing post", err: ErrNotFound, path: "/api/v1/posts/" + validID, wantStatus: http.StatusNotFound, wantCode: "NOT_FOUND"},
+		{name: "unexpected dependency failure", err: errors.New("DynamoDB connection refused"), path: "/api/v1/posts/" + validID, wantStatus: http.StatusInternalServerError, wantCode: "INTERNAL_ERROR", leak: "DynamoDB connection refused"},
+		{name: "translated dependency failure", err: ErrDependencyUnavailable, path: "/api/v1/posts/" + validID, wantStatus: http.StatusServiceUnavailable, wantCode: "SERVICE_UNAVAILABLE", leak: "dependency unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewHandler(NewService(&fakeRepository{err: tc.err}, fakeIDs{}, fakeClock{}), nil)
+			response := httptest.NewRecorder()
+			NewRouter(handler, fakeAuthenticator{}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if response.Code != tc.wantStatus || !strings.Contains(response.Body.String(), `"code":"`+tc.wantCode+`"`) {
+				t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+			}
+			if tc.leak != "" && strings.Contains(response.Body.String(), tc.leak) {
+				t.Fatalf("response leaked infrastructure detail: %s", response.Body.String())
+			}
+		})
 	}
 }

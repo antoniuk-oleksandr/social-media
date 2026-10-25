@@ -18,5 +18,5 @@ func ToCreateCommand(authorID string, request CreateRequest) CreateCommand {
 }
 
 func ToResponse(value Post) Response {
-	return Response{ID: value.ID, AuthorID: value.AuthorID, Content: value.Content, CreatedAt: value.CreatedAt.UTC().Format(time.RFC3339)}
+	return Response{ID: value.ID, AuthorID: value.AuthorID, Content: value.Content, CreatedAt: value.CreatedAt.UTC().Format(time.RFC3339Nano)}
 }
