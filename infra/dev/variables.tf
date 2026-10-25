@@ -54,6 +54,12 @@ variable "lambda_package_path" {
   default     = "../../build/auth-lambda.zip"
 }
 
+variable "users_lambda_package_path" {
+  type        = string
+  description = "Path to the prebuilt users Lambda ZIP, relative to this directory."
+  default     = "../../build/users-lambda.zip"
+}
+
 variable "jwt_signing_key_parameter" {
   type    = string
   default = "/social-media/dev/auth/jwt-signing-key"

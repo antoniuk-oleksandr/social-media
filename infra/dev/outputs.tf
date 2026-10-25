@@ -6,6 +6,10 @@ output "auth_function_name" {
   value = aws_lambda_function.auth.function_name
 }
 
+output "users_function_name" {
+  value = aws_lambda_function.users.function_name
+}
+
 output "users_table_name" {
   value = aws_dynamodb_table.users.name
 }

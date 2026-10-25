@@ -11,6 +11,20 @@ resource "aws_apigatewayv2_integration" "auth" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "users" {
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.users.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "users_by_id" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/v1/users/{userId}"
+  target    = "integrations/${aws_apigatewayv2_integration.users.id}"
+}
+
 resource "aws_apigatewayv2_route" "auth_register" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /api/v1/auth/register"
@@ -45,6 +59,14 @@ resource "aws_lambda_permission" "api_gateway_auth" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.auth.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "api_gateway_users" {
+  statement_id  = "AllowAPIGatewayInvokeUsers"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.users.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
