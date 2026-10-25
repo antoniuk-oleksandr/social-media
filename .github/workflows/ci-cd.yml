@@ -45,7 +45,7 @@ jobs:
           bash scripts/check_coverage.sh coverage.out
 
       - name: Run integration tests
-        run: go test -race -tags=integration ./tests/integration/...
+        run: go test -race -p 1 -tags=integration ./tests/integration/...
 
   deploy:
     name: Deploy with Terraform

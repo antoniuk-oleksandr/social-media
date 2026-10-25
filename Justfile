@@ -63,7 +63,7 @@ coverage:
     bash scripts/check_coverage.sh coverage.out
 
 integration:
-    GOTOOLCHAIN=auto go test -v -count=1 -race -tags=integration ./tests/integration/...
+    GOTOOLCHAIN=auto go test -v -count=1 -race -p 1 -tags=integration ./tests/integration/...
 
 hermes-setup:
     mkdir -p "$HOME/.hermes"
