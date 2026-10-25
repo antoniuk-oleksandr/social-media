@@ -176,6 +176,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "dynamodb:CreateTable",
       "dynamodb:DeleteTable",
+      "dynamodb:DescribeContinuousBackups",
       "dynamodb:DescribeTable",
       "dynamodb:ListTagsOfResource",
       "dynamodb:TagResource",
@@ -247,6 +248,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "s3:CreateBucket",
       "s3:DeleteBucket",
+      "s3:GetBucketPolicy",
       "s3:GetBucketLocation",
       "s3:GetBucketOwnershipControls",
       "s3:GetBucketPublicAccessBlock",
@@ -303,6 +305,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "iam:DeleteRolePolicy",
       "iam:GetRole",
       "iam:GetRolePolicy",
+      "iam:ListAttachedRolePolicies",
       "iam:ListRolePolicies",
       "iam:PutRolePolicy",
       "iam:UpdateAssumeRolePolicy"
