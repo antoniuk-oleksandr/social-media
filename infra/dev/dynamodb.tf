@@ -100,3 +100,31 @@ resource "aws_dynamodb_table" "posts" {
     projection_type = "ALL"
   }
 }
+
+resource "aws_dynamodb_table" "ads" {
+  name         = local.ads_table
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "adId"
+
+  attribute {
+    name = "adId"
+    type = "S"
+  }
+
+  attribute {
+    name = "status"
+    type = "S"
+  }
+
+  attribute {
+    name = "createdAtEpoch"
+    type = "N"
+  }
+
+  global_secondary_index {
+    name            = "ActiveAdsIndex"
+    hash_key        = "status"
+    range_key       = "createdAtEpoch"
+    projection_type = "ALL"
+  }
+}

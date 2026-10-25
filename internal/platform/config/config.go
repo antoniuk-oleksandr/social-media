@@ -17,6 +17,10 @@ type PostsConfig struct {
 	PostsTable string
 }
 
+type AdsConfig struct {
+	AdsTable string
+}
+
 func Load() (aws.Config, error) {
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
@@ -31,6 +35,10 @@ func LoadUsersConfig() UsersConfig {
 
 func LoadPostsConfig() PostsConfig {
 	return PostsConfig{PostsTable: value("POSTS_TABLE", "social-media-local-posts")}
+}
+
+func LoadAdsConfig() AdsConfig {
+	return AdsConfig{AdsTable: value("ADS_TABLE", "social-media-local-ads")}
 }
 
 func value(key, fallback string) string {

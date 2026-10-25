@@ -94,7 +94,7 @@ def main() -> int:
     }
 
     requested_function = os.environ.get("SAM_FUNCTION")
-    function_name = requested_function if requested_function in {"AuthFunction", "UsersFunction", "PostsFunction"} else "AuthFunction"
+    function_name = requested_function if requested_function in {"AuthFunction", "UsersFunction", "PostsFunction", "AdsFunction"} else "AuthFunction"
     env_path = Path(__file__).with_name(".env")
     env_file = Path(__file__).with_name("env.json")
     env_values = json.loads(env_file.read_text(encoding="utf-8"))
