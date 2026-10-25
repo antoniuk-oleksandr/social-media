@@ -27,6 +27,20 @@ resource "aws_apigatewayv2_integration" "posts" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "ads" {
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.ads.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "ads_create" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "POST /api/v1/ads"
+  target    = "integrations/${aws_apigatewayv2_integration.ads.id}"
+}
+
 resource "aws_apigatewayv2_route" "users_by_id" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "GET /api/v1/users/{userId}"
@@ -107,6 +121,14 @@ resource "aws_lambda_permission" "api_gateway_posts" {
   statement_id  = "AllowAPIGatewayInvokePosts"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.posts.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "api_gateway_ads" {
+  statement_id  = "AllowAPIGatewayInvokeAds"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ads.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }

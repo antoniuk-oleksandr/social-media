@@ -404,3 +404,35 @@ resource "aws_iam_role_policy" "posts_lambda" {
   role   = aws_iam_role.posts_lambda.id
   policy = data.aws_iam_policy_document.posts_lambda.json
 }
+
+resource "aws_iam_role" "ads_lambda" {
+  name               = "${local.ads_function}-execution"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "ads_lambda" {
+  statement {
+    sid       = "WriteApplicationLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.ads.arn}:*"]
+  }
+  statement {
+    sid       = "CreateAds"
+    effect    = "Allow"
+    actions   = ["dynamodb:DescribeTable", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.ads.arn]
+  }
+  statement {
+    sid       = "ReadJWTSigningKey"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ads_lambda" {
+  name   = "${local.ads_function}-execution"
+  role   = aws_iam_role.ads_lambda.id
+  policy = data.aws_iam_policy_document.ads_lambda.json
+}
