@@ -25,6 +25,12 @@ resource "aws_apigatewayv2_route" "users_by_id" {
   target    = "integrations/${aws_apigatewayv2_integration.users.id}"
 }
 
+resource "aws_apigatewayv2_route" "users_me" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "PATCH /api/v1/users/me"
+  target    = "integrations/${aws_apigatewayv2_integration.users.id}"
+}
+
 resource "aws_apigatewayv2_route" "auth_register" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /api/v1/auth/register"

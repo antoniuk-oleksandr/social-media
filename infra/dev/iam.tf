@@ -76,6 +76,24 @@ data "aws_iam_policy_document" "users_lambda" {
     actions   = ["dynamodb:DescribeTable", "dynamodb:GetItem"]
     resources = [aws_dynamodb_table.users.arn]
   }
+  statement {
+    sid    = "UpdateUserProfile"
+    effect = "Allow"
+    actions = [
+      "dynamodb:UpdateItem",
+      "dynamodb:TransactWriteItems"
+    ]
+    resources = [
+      aws_dynamodb_table.users.arn,
+      aws_dynamodb_table.uniques.arn
+    ]
+  }
+  statement {
+    sid       = "ReadJWTSigningKey"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "users_lambda" {
