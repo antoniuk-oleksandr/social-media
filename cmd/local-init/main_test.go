@@ -75,6 +75,15 @@ var _ = Describe("RunPropagatesLoadAndTableErrors", func() {
 
 	})
 })
+
+var _ = Describe("InitTablesUserKey", func() {
+	It("uses String for the users table hash key", func() {
+		client := &fakeClient{}
+		Expect(initTables(context.Background(), client, func(string, ...any) (int, error) { return 0, nil })).To(Succeed())
+		Expect(client.inputs[0].AttributeDefinitions[0].AttributeType).To(Equal(types.ScalarAttributeTypeS))
+	})
+})
+
 var _ = Describe("EnvAndErrorAs", func() {
 	It("runs the test", func() {
 		const k = "INIT_TEST_ENV"
