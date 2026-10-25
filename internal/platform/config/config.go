@@ -13,6 +13,10 @@ type UsersConfig struct {
 	UniquesTable string
 }
 
+type PostsConfig struct {
+	PostsTable string
+}
+
 func Load() (aws.Config, error) {
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
@@ -23,6 +27,10 @@ func Load() (aws.Config, error) {
 
 func LoadUsersConfig() UsersConfig {
 	return UsersConfig{UsersTable: value("USERS_TABLE", "social-media-local-users"), UniquesTable: value("UNIQUES_TABLE", "social-media-local-uniques")}
+}
+
+func LoadPostsConfig() PostsConfig {
+	return PostsConfig{PostsTable: value("POSTS_TABLE", "social-media-local-posts")}
 }
 
 func value(key, fallback string) string {

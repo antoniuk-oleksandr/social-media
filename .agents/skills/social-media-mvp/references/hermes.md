@@ -39,8 +39,18 @@ just auth-request POST /api/v1/auth/register \
   '{"content-type":"application/json"}'
 ```
 
+Create an authenticated local post with the Posts Lambda:
+
+```bash
+just posts-request POST /api/v1/posts \
+  '{"content":"Hello from local SAM"}' \
+  '{"content-type":"application/json","authorization":"Bearer $ACCESS_TOKEN"}'
+```
+
 The SAM template is [`infra/local/template.yaml`](../../../../infra/local/template.yaml),
 and the non-secret base environment is [`infra/local/env.json`](../../../../infra/local/env.json).
+It defines Auth, Users, and Posts Lambda functions; `local-init` creates their
+local DynamoDB tables before each request.
 Local SAM invocations overlay values from the ignored `infra/local/.env` file.
 Create it from `infra/local/.env.example` when setting up a new checkout. Keep
 local signing keys in `.env`; never commit that file.

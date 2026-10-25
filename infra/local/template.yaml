@@ -43,3 +43,24 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+
+  PostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
+      Handler: bootstrap
+      CodeUri: ../../build/posts/
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          AWS_REGION: us-east-1
+          APP_ENV: local
+          DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+          POSTS_TABLE: social-media-local-posts
+          JWT_KID: local
+          JWT_ACCESS_SECRET: local-development-secret
+          JWT_ISSUER: social-media-api
+          JWT_AUDIENCE: social-media-api

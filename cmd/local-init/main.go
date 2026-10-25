@@ -37,6 +37,7 @@ func initTables(ctx context.Context, client tableCreator, print func(string, ...
 	users := env("USERS_TABLE", "social-media-local-users")
 	uniques := env("UNIQUES_TABLE", "social-media-local-uniques")
 	refresh := env("REFRESH_TABLE", "social-media-local-refresh-sessions")
+	posts := env("POSTS_TABLE", "social-media-local-posts")
 	for _, table := range []struct {
 		name                 string
 		key                  string
@@ -57,6 +58,13 @@ func initTables(ctx context.Context, client tableCreator, print func(string, ...
 			{AttributeName: aws.String("sessionId"), AttributeType: types.ScalarAttributeTypeS},
 		}, indexes: []types.GlobalSecondaryIndex{
 			{IndexName: aws.String("SessionIdIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("sessionId"), KeyType: types.KeyTypeHash}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
+		}},
+		{name: posts, key: "postId", attributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("postId"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("feedPartition"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("createdAtEpoch"), AttributeType: types.ScalarAttributeTypeN},
+		}, indexes: []types.GlobalSecondaryIndex{
+			{IndexName: aws.String("FeedPostsIndex"), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String("feedPartition"), KeyType: types.KeyTypeHash}, {AttributeName: aws.String("createdAtEpoch"), KeyType: types.KeyTypeRange}}, Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll}},
 		}},
 	} {
 		_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{TableName: aws.String(table.name), KeySchema: []types.KeySchemaElement{{AttributeName: aws.String(table.key), KeyType: types.KeyTypeHash}}, AttributeDefinitions: table.attributeDefinitions, BillingMode: types.BillingModePayPerRequest, GlobalSecondaryIndexes: table.indexes})

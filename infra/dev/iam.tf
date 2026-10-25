@@ -184,11 +184,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "dynamodb:UntagResource",
       "dynamodb:UpdateTable"
     ]
-    resources = [
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.users_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.uniques_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.refresh_table}"
-    ]
+    resources = ["arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-*"]
   }
 
   statement {
@@ -212,10 +208,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration"
     ]
-    resources = [
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.auth_function}",
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}"
-    ]
+    resources = ["arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.name_prefix}-*"]
   }
 
   statement {
@@ -230,10 +223,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "logs:TagResource",
       "logs:UntagResource"
     ]
-    resources = [
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.auth_function}",
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.users_function}"
-    ]
+    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-*"]
   }
 
   statement {
@@ -257,7 +247,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "s3:PutBucketVersioning",
       "s3:PutEncryptionConfiguration"
     ]
-    resources = ["arn:aws:s3:::${local.media_bucket_name}"]
+    resources = ["arn:aws:s3:::${local.name_prefix}-*"]
   }
 
   statement {
@@ -271,7 +261,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "ssm:PutParameter",
       "ssm:RemoveTagsFromResource"
     ]
-    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"]
   }
 
   statement {
@@ -306,8 +296,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "iam:UpdateAssumeRolePolicy"
     ]
     resources = [
-      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.auth_function}-execution",
-      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.users_function}-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-*-execution",
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.github_actions_role_name}"
     ]
   }
@@ -345,10 +334,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
-    sid       = "PassAuthLambdaRole"
+    sid       = "PassApplicationLambdaRoles"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.auth_lambda.arn]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-*-execution"]
 
     condition {
       test     = "StringEquals"
@@ -358,10 +347,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
-    sid       = "PassUsersLambdaRole"
+    sid       = "PassPostsLambdaRole"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.users_lambda.arn]
+    resources = [aws_iam_role.posts_lambda.arn]
 
     condition {
       test     = "StringEquals"
@@ -374,7 +363,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     sid       = "ReadSigningKeyParameter"
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"]
   }
 }
 
@@ -382,4 +371,36 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   name   = "${var.github_actions_role_name}-policy"
   role   = aws_iam_role.github_actions_deploy.id
   policy = data.aws_iam_policy_document.github_actions_deploy.json
+}
+
+resource "aws_iam_role" "posts_lambda" {
+  name               = "${local.posts_function}-execution"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "posts_lambda" {
+  statement {
+    sid       = "WriteApplicationLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.posts.arn}:*"]
+  }
+  statement {
+    sid       = "CreatePosts"
+    effect    = "Allow"
+    actions   = ["dynamodb:DescribeTable", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.posts.arn]
+  }
+  statement {
+    sid       = "ReadJWTSigningKey"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "posts_lambda" {
+  name   = "${local.posts_function}-execution"
+  role   = aws_iam_role.posts_lambda.id
+  policy = data.aws_iam_policy_document.posts_lambda.json
 }

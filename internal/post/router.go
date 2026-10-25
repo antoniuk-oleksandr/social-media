@@ -1,0 +1,40 @@
+package post
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type TokenAuthenticator interface {
+	Authenticate(context.Context, string) (string, error)
+}
+
+func NewRouter(handler *Handler, authenticator TokenAuthenticator) http.Handler {
+	router := http.NewServeMux()
+	router.HandleFunc("POST /api/v1/posts", func(w http.ResponseWriter, r *http.Request) {
+		startedAt := time.Now()
+		const prefix = "Bearer "
+		header := r.Header.Get("Authorization")
+		if !strings.HasPrefix(header, prefix) || strings.TrimSpace(strings.TrimPrefix(header, prefix)) == "" {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required", requestID(r))
+			handler.logAuthenticationFailure(requestID(r), "UNAUTHORIZED", http.StatusUnauthorized, time.Since(startedAt))
+			return
+		}
+		id, err := authenticator.Authenticate(r.Context(), strings.TrimPrefix(header, prefix))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Invalid access token", requestID(r))
+			handler.logAuthenticationFailure(requestID(r), "INVALID_TOKEN", http.StatusUnauthorized, time.Since(startedAt))
+			return
+		}
+		handler.Create(w, WithAuthenticatedUserID(r, id))
+	})
+	return router
+}
+func requestID(r *http.Request) string {
+	if value := r.Header.Get("X-Request-ID"); value != "" {
+		return value
+	}
+	return "req-local"
+}
