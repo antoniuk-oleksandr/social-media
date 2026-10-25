@@ -21,7 +21,7 @@ The Compose network is dedicated to this local stack and the host port is bound 
 This stack is not a substitute for integration-test isolation. Testcontainers owns the lifecycle of integration-test DynamoDB Local containers and tests must use isolated tables.
 - MVP uses separate logical tables for users, posts, advertisements, and optional feed state.
 - Every feed entity has an entityType value: post or ad.
-- IDs are UUIDv7 strings. API examples may use shortened illustrative IDs, but persisted and accepted resource IDs must be valid UUIDv7 values.
+- Resource IDs are canonical UUIDv7 strings. Persisted and accepted resource IDs use DynamoDB String values.
 - Timestamps use ISO 8601 UTC strings. Numeric epoch timestamps are stored for sorting.
 - Passwords are stored only as bcrypt hashes using cost 12.
 - Access tokens are HS256 JWTs. Refresh tokens are opaque random tokens; only their SHA-256 hashes are stored in DynamoDB.
@@ -178,14 +178,14 @@ Posts and ads remain in separate tables. The feed Lambda returns one typed list:
     {
       "items": [
         {
-          "id": "pst_020",
+          "id": "0192c5f4-7b2a-7abf-8def-1234567890ab",
           "type": "post",
-          "authorId": "usr_123",
+          "authorId": "0192c5f4-7b2a-7abf-8def-1234567890ab",
           "content": "Post number 20",
           "createdAt": "2026-10-18T12:00:00Z"
         },
         {
-          "id": "ad_001",
+          "id": "0192c5f4-7b2a-7abe-8def-1234567890ab",
           "type": "ad",
           "advertiser": "Example Company",
           "content": "Try our new product!",
