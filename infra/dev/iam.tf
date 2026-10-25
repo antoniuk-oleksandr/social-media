@@ -249,9 +249,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "s3:CreateBucket",
       "s3:DeleteBucket",
-      "s3:GetBucket*",
-      "s3:GetAccelerateConfiguration",
-      "s3:GetEncryptionConfiguration",
+      "s3:Get*",
       "s3:ListBucket",
       "s3:PutBucketOwnershipControls",
       "s3:PutBucketPublicAccessBlock",
