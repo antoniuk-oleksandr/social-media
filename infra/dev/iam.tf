@@ -388,7 +388,7 @@ data "aws_iam_policy_document" "posts_lambda" {
   statement {
     sid       = "CreatePosts"
     effect    = "Allow"
-    actions   = ["dynamodb:DescribeTable", "dynamodb:PutItem"]
+    actions   = ["dynamodb:DeleteItem", "dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.posts.arn]
   }
   statement {
