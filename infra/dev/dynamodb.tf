@@ -72,3 +72,20 @@ resource "aws_dynamodb_table" "refresh_sessions" {
     enabled        = true
   }
 }
+
+resource "aws_dynamodb_table" "posts" {
+  name         = local.posts_table
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "postId"
+
+  attribute { name = "postId" type = "S" }
+  attribute { name = "feedPartition" type = "S" }
+  attribute { name = "createdAtEpoch" type = "N" }
+
+  global_secondary_index {
+    name            = "FeedPostsIndex"
+    hash_key        = "feedPartition"
+    range_key       = "createdAtEpoch"
+    projection_type = "ALL"
+  }
+}

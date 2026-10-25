@@ -383,3 +383,35 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   role   = aws_iam_role.github_actions_deploy.id
   policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
+
+resource "aws_iam_role" "posts_lambda" {
+  name               = "${local.posts_function}-execution"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "posts_lambda" {
+  statement {
+    sid       = "WriteApplicationLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.posts.arn}:*"]
+  }
+  statement {
+    sid       = "CreatePosts"
+    effect    = "Allow"
+    actions   = ["dynamodb:DescribeTable", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.posts.arn]
+  }
+  statement {
+    sid       = "ReadJWTSigningKey"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "posts_lambda" {
+  name   = "${local.posts_function}-execution"
+  role   = aws_iam_role.posts_lambda.id
+  policy = data.aws_iam_policy_document.posts_lambda.json
+}
