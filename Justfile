@@ -21,6 +21,10 @@ users-build:
     mkdir -p build/users
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/users/bootstrap ./cmd/users
 
+posts-build:
+    mkdir -p build/posts
+    AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/posts/bootstrap ./cmd/posts
+
 lambda-package:
     bash scripts/package_lambdas.sh
 
@@ -31,6 +35,9 @@ auth-request method path body headers='{"content-type":"application/json"}': loc
 
 users-request method path body='' headers='{"content-type":"application/json"}': local-up local-init users-build
     SAM_FUNCTION=UsersFunction python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
+
+posts-request method path body='' headers='{"content-type":"application/json"}': local-up local-init posts-build
+    SAM_FUNCTION=PostsFunction python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
 
 terraform-bootstrap-dev:
     set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap init -input=false

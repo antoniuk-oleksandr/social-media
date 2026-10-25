@@ -31,11 +31,11 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 		f := &fakeClient{err: &types.ResourceInUseException{}}
 		count := 0
 		e := run(context.Background(), func(context.Context, string) (aws.Config, error) { return aws.Config{}, nil }, func(aws.Config) tableCreator { return f }, func(string, ...any) (int, error) { count++; return 0, nil })
-		if e != nil || f.n != 3 || count != 3 {
+		if e != nil || f.n != 4 || count != 4 {
 			Expect(false).To(BeTrue(), fmt.Sprintf("e=%v n=%d count=%d", e, f.n, count))
 		}
-		if len(f.inputs) != 3 {
-			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 3", len(f.inputs)))
+		if len(f.inputs) != 4 {
+			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 4", len(f.inputs)))
 		}
 		assertIndex := func(table int, name, attribute string) {
 			input := f.inputs[table]
@@ -55,6 +55,22 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 		assertIndex(0, "EmailIndex", "email")
 		assertIndex(0, "UsernameIndex", "username")
 		assertIndex(2, "SessionIdIndex", "sessionId")
+		assertCompositeIndex := func(table int, name, hash, sort string) {
+			input := f.inputs[table]
+			for _, index := range input.GlobalSecondaryIndexes {
+				if aws.ToString(index.IndexName) == name {
+					if len(index.KeySchema) != 2 || aws.ToString(index.KeySchema[0].AttributeName) != hash || index.KeySchema[0].KeyType != types.KeyTypeHash || aws.ToString(index.KeySchema[1].AttributeName) != sort || index.KeySchema[1].KeyType != types.KeyTypeRange {
+						Expect(false).To(BeTrue(), fmt.Sprintf("index %q has schema %#v", name, index.KeySchema))
+					}
+					if index.Projection == nil || index.Projection.ProjectionType != types.ProjectionTypeAll {
+						Expect(false).To(BeTrue(), fmt.Sprintf("index %q projection=%#v, want ALL", name, index.Projection))
+					}
+					return
+				}
+			}
+			Expect(false).To(BeTrue(), fmt.Sprintf("index %q not found in %#v", name, input.GlobalSecondaryIndexes))
+		}
+		assertCompositeIndex(3, "FeedPostsIndex", "feedPartition", "createdAtEpoch")
 		if len(f.inputs[1].GlobalSecondaryIndexes) != 0 {
 			Expect(false).To(BeTrue(), fmt.Sprintf("uniques GSIs=%d, want 0", len(f.inputs[1].GlobalSecondaryIndexes)))
 		}
