@@ -65,7 +65,7 @@ func (l refreshUserLookup) FindByID(context.Context, string) (user.User, error) 
 		return user.User{}, l.err
 	}
 	if l.user.ID == "" {
-		l.user.ID = "user"
+		l.user.ID = "0192f8a0-7b00-7000-8000-000000000001"
 	}
 	if l.user.Role == "" {
 		l.user.Role = user.RoleUser
@@ -85,7 +85,7 @@ func (o *refreshOpaque) Generate() (string, string, error) {
 
 var _ = Describe("RefreshService", func() {
 	It("rotates an active refresh session once", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "user", SessionID: "family", Status: "active", ExpiresAt: time.Now().Add(time.Hour)}}
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active", ExpiresAt: time.Now().Add(time.Hour)}}
 		access := &refreshAccess{}
 		svc := &auth.Service{RefreshStore: store, Users: refreshUserLookup{}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: access, Opaque: &refreshOpaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 		got, err := svc.Refresh(context.Background(), "old-refresh")
@@ -96,7 +96,7 @@ var _ = Describe("RefreshService", func() {
 	})
 
 	It("revokes the family when a consumed token is replayed", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{Status: "consumed"}}
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "consumed"}}
 		svc := &auth.Service{RefreshStore: store, Users: refreshUserLookup{}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
 		_, err := svc.Refresh(context.Background(), "old-refresh")
 		Expect(err).To(MatchError(auth.ErrInvalidRefreshToken))
@@ -116,21 +116,21 @@ var _ = Describe("RefreshService", func() {
 
 	It("preserves an admin role and rejects an inactive user", func() {
 		adminAccess := &refreshAccess{}
-		adminStore := &refreshStoreFake{session: auth.RefreshSession{UserID: "admin", SessionID: "family", Status: "active"}}
-		admin := &auth.Service{RefreshStore: adminStore, Users: refreshUserLookup{user: user.User{ID: "admin", Role: user.Role("admin"), Status: user.StatusActive}}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: adminAccess, Opaque: &refreshOpaque{}}
+		adminStore := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000002", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"}}
+		admin := &auth.Service{RefreshStore: adminStore, Users: refreshUserLookup{user: user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", Role: user.Role("admin"), Status: user.StatusActive}}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: adminAccess, Opaque: &refreshOpaque{}}
 		_, err := admin.Refresh(context.Background(), "admin-refresh")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(adminAccess.issuedUser.Role).To(Equal(user.Role("admin")))
 
-		inactiveStore := &refreshStoreFake{session: auth.RefreshSession{UserID: "inactive", SessionID: "family", Status: "active"}}
-		inactive := &auth.Service{RefreshStore: inactiveStore, Users: refreshUserLookup{user: user.User{ID: "inactive", Status: user.Status("inactive")}}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
+		inactiveStore := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000003", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"}}
+		inactive := &auth.Service{RefreshStore: inactiveStore, Users: refreshUserLookup{user: user.User{ID: "0192f8a0-7b00-7000-8000-000000000002", Status: user.Status("inactive")}}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
 		_, err = inactive.Refresh(context.Background(), "inactive-refresh")
 		Expect(err).To(MatchError(auth.ErrInvalidRefreshToken))
 		Expect(inactiveStore.rotated).To(BeFalse())
 	})
 
 	It("returns dependency failure when replay-family revocation fails", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{Status: "consumed"}, revokeErr: errors.New("revoke failed")}
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "consumed"}, revokeErr: errors.New("revoke failed")}
 		svc := &auth.Service{RefreshStore: store, Users: refreshUserLookup{}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
 		_, err := svc.Refresh(context.Background(), "replayed")
 		Expect(err).To(MatchError(ContainSubstring("revoke refresh session family")))
@@ -138,7 +138,7 @@ var _ = Describe("RefreshService", func() {
 	})
 
 	It("returns dependency failure when rotation conflicts and revocation fails", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "user", SessionID: "family", Status: "active"}, rotateErr: auth.ErrInvalidRefreshToken, revokeErr: errors.New("revoke failed")}
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"}, rotateErr: auth.ErrInvalidRefreshToken, revokeErr: errors.New("revoke failed")}
 		svc := &auth.Service{RefreshStore: store, Users: refreshUserLookup{}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
 		_, err := svc.Refresh(context.Background(), "conflict")
 		Expect(err).To(MatchError(ContainSubstring("revoke refresh session family")))

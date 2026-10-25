@@ -30,7 +30,7 @@ var _ = Describe("logout persistence", func() {
 			TableName: aws.String(integrationSuite.RefreshTable),
 			Item: map[string]types.AttributeValue{
 				"tokenHash": &types.AttributeValueMemberS{Value: consumedHash},
-				"sessionId": &types.AttributeValueMemberS{Value: "logout-consumed-family"},
+				"sessionId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000020"},
 				"status":    &types.AttributeValueMemberS{Value: "consumed"},
 				"expiresAt": &types.AttributeValueMemberN{Value: fmt.Sprint(now.Add(time.Hour).Unix())},
 			},
@@ -38,7 +38,7 @@ var _ = Describe("logout persistence", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		revokedTokenHash := hashToken("logout-revoked-family-token")
-		revokedFamily := "logout-revoked-family"
+		revokedFamily := "0192f8a0-7b00-7000-8000-000000000021"
 		_, err = integrationSuite.Client.PutItem(context.Background(), &dynamodb.PutItemInput{
 			TableName: aws.String(integrationSuite.RefreshTable),
 			Item: map[string]types.AttributeValue{
@@ -88,8 +88,8 @@ var _ = Describe("logout persistence", func() {
 			tokenHash := hashToken("expiration-" + tc.name)
 			item := map[string]types.AttributeValue{
 				"tokenHash": &types.AttributeValueMemberS{Value: tokenHash},
-				"sessionId": &types.AttributeValueMemberS{Value: "family-" + tc.name},
-				"userId":    &types.AttributeValueMemberS{Value: "expiration-user"},
+				"sessionId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000022"},
+				"userId":    &types.AttributeValueMemberS{Value: testUserID},
 				"status":    &types.AttributeValueMemberS{Value: "active"},
 			}
 			if tc.expiresAt != nil {
@@ -106,13 +106,13 @@ var _ = Describe("logout persistence", func() {
 		}
 
 		futureHash := hashToken("expiration-future")
-		futureFamily := "family-future"
+		futureFamily := "0192f8a0-7b00-7000-8000-000000000023"
 		_, err := integrationSuite.Client.PutItem(context.Background(), &dynamodb.PutItemInput{
 			TableName: aws.String(integrationSuite.RefreshTable),
 			Item: map[string]types.AttributeValue{
 				"tokenHash": &types.AttributeValueMemberS{Value: futureHash},
 				"sessionId": &types.AttributeValueMemberS{Value: futureFamily},
-				"userId":    &types.AttributeValueMemberS{Value: "expiration-user"},
+				"userId":    &types.AttributeValueMemberS{Value: testUserID},
 				"status":    &types.AttributeValueMemberS{Value: "active"},
 				"createdAt": &types.AttributeValueMemberN{Value: fmt.Sprint(now.Unix())},
 				"expiresAt": &types.AttributeValueMemberN{Value: fmt.Sprint(now.Add(time.Minute).Unix())},
@@ -138,7 +138,7 @@ var _ = Describe("logout persistence", func() {
 	It("returns 204 once, then 401 for the reused token, and revokes its entire family", func() {
 		store := integrationStore()
 		createdAt := time.Now().UTC().Truncate(time.Second)
-		familyID := "logout-family"
+		familyID := "0192f8a0-7b00-7000-8000-000000000024"
 		for _, rawToken := range []string{"logout-token-a", "logout-token-b", "logout-token-c"} {
 			registration := fixtures.Registration("logout-"+rawToken, "logout_"+rawToken, rawToken+"@example.com")
 			session := authdomain.RefreshSession{
@@ -174,7 +174,7 @@ var _ = Describe("logout persistence", func() {
 	It("allows exactly one concurrent logout, rejects the other, and persists the revoked family marker", func() {
 		store := integrationStore()
 		createdAt := time.Now().UTC().Truncate(time.Second)
-		familyID := "logout-concurrent-family"
+		familyID := "0192f8a0-7b00-7000-8000-000000000025"
 		rawToken := "logout-concurrent-token"
 		registration := fixtures.Registration("logout-concurrent", "logout_concurrent", "logout-concurrent@example.com")
 		session := authdomain.RefreshSession{
@@ -229,7 +229,7 @@ var _ = Describe("logout persistence", func() {
 		registration := fixtures.Registration("logout-unknown", "logout_unknown", "logout-unknown@example.com")
 		session := authdomain.RefreshSession{
 			TokenHash: hashToken("known-logout-token"),
-			SessionID: "known-logout-family",
+			SessionID: "0192f8a0-7b00-7000-8000-000000000026",
 			UserID:    registration.User.ID,
 			CreatedAt: time.Now().UTC().Truncate(time.Second),
 			ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),

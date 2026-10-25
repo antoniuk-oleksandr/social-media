@@ -15,7 +15,7 @@ type loginFailureID struct{}
 func (loginFailureID) New() (string, error) { return "", errors.New("id failure") }
 
 var _ = Describe("LoginServiceInfrastructureFailures", func() {
-	active := user.User{ID: "user-id", PasswordHash: "hash", Status: user.StatusActive}
+	active := user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", PasswordHash: "hash", Status: user.StatusActive}
 	It("translates dependency failures", func() {
 		for _, tc := range []struct {
 			name string

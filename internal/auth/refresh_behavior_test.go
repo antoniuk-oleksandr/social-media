@@ -219,7 +219,7 @@ func (concurrentUserLookup) FindByID(context.Context, string) (user.User, error)
 
 var _ = Describe("RefreshService concurrency", func() {
 	It("allows one rotation and revokes the replay", func() {
-		store := &concurrentRefreshStore{active: true, session: auth.RefreshSession{UserID: "user", SessionID: "family", Status: "active"}}
+		store := &concurrentRefreshStore{active: true, session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"}}
 		service := &auth.Service{RefreshStore: store, Users: concurrentUserLookup{}, Clock: concurrentClock{}, Access: concurrentAccessIssuer{}, Opaque: concurrentOpaqueGenerator{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 		start := make(chan struct{})
 		results := make(chan error, 2)

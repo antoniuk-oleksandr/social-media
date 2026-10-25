@@ -32,6 +32,8 @@ var _ = Describe("DynamoDB support", func() {
 		Expect(err).NotTo(HaveOccurred())
 		client := dynamodb.NewFromConfig(cfg)
 		Expect(CreateTable(context.Background(), client, "test-table", "id")).To(HaveOccurred())
+		Expect(CreateTable(context.Background(), client, "tests-users-by-id-table", "userId")).To(HaveOccurred())
+		Expect(CreateTable(context.Background(), client, "refresh-table", "tokenHash")).To(HaveOccurred())
 	})
 
 	It("uses the connection string as the DynamoDB endpoint host and port", func() {

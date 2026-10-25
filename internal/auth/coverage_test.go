@@ -167,7 +167,7 @@ var _ = Describe("AdditionalServiceAndLoginCoverage", func() {
 	})
 
 	It("maps a deleted refresh-session user to an invalid token", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "deleted", Status: "active"}}
+		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000004", Status: "active"}}
 		service := &auth.Service{
 			RefreshStore: store,
 			Users:        refreshUserLookup{err: user.ErrNotFound},

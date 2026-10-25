@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"net"
 	"strconv"
 	"time"
 
@@ -12,18 +13,34 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+type testNetworkError struct{}
+
+func (testNetworkError) Error() string   { return "network" }
+func (testNetworkError) Timeout() bool   { return true }
+func (testNetworkError) Temporary() bool { return true }
+
+var _ net.Error = testNetworkError{}
+
+func canceled(codes ...string) error {
+	reasons := make([]types.CancellationReason, len(codes))
+	for i, code := range codes {
+		reasons[i] = types.CancellationReason{Code: aws.String(code)}
+	}
+	return &types.TransactionCanceledException{CancellationReasons: reasons}
+}
+
 var _ = Describe("RotateRefreshSession", func() {
 	It("builds an atomic consume-and-create transaction", func() {
 		now := time.Unix(1_700_000_000, 0).UTC()
 		api := &fakeAPI{}
 		store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: now}}
-		next := auth.RefreshSession{TokenHash: "next-hash", SessionID: "family", UserID: "user", CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour)}
+		next := auth.RefreshSession{TokenHash: "next-hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: "0192f8a0-7b00-7000-8000-000000000001", CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour)}
 
 		Expect(store.RotateRefreshSession(context.Background(), "old-hash", next)).To(Succeed())
 		Expect(api.transactionIn.TransactItems).To(HaveLen(3))
 		familyCheck := api.transactionIn.TransactItems[0].ConditionCheck
 		Expect(familyCheck).NotTo(BeNil())
-		Expect(familyCheck.Key["tokenHash"]).To(Equal(&types.AttributeValueMemberS{Value: "FAMILY#family"}))
+		Expect(familyCheck.Key["tokenHash"]).To(Equal(&types.AttributeValueMemberS{Value: "FAMILY#0192f8a0-7b00-7000-8000-000000000003"}))
 		Expect(aws.ToString(familyCheck.ConditionExpression)).To(Equal("attribute_not_exists(tokenHash)"))
 		update := api.transactionIn.TransactItems[1].Update
 		Expect(update).NotTo(BeNil())
@@ -36,7 +53,7 @@ var _ = Describe("RotateRefreshSession", func() {
 	})
 
 	It("maps conditional and dependency errors", func() {
-		next := auth.RefreshSession{TokenHash: "next-hash", SessionID: "family", UserID: "user", CreatedAt: time.Unix(1, 0), ExpiresAt: time.Unix(2, 0)}
+		next := auth.RefreshSession{TokenHash: "next-hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: "0192f8a0-7b00-7000-8000-000000000001", CreatedAt: time.Unix(1, 0), ExpiresAt: time.Unix(2, 0)}
 		for _, tc := range []struct {
 			name string
 			err  error
@@ -57,8 +74,8 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 		now := time.Unix(1_700_000_000, 0).UTC()
 		item := map[string]types.AttributeValue{
 			"tokenHash": &types.AttributeValueMemberS{Value: "old-hash"},
-			"sessionId": &types.AttributeValueMemberS{Value: "family"},
-			"userId":    &types.AttributeValueMemberS{Value: "user"},
+			"sessionId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000010"},
+			"userId":    &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000001"},
 			"status":    &types.AttributeValueMemberS{Value: "consumed"},
 		}
 		api := &fakeAPI{items: map[string]map[string]types.AttributeValue{"old-hash": item}}
@@ -66,7 +83,7 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 
 		Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(Succeed())
 		put := api.transactionIn.TransactItems[0].Put
-		Expect(put.Item["tokenHash"]).To(Equal(&types.AttributeValueMemberS{Value: "FAMILY#family"}))
+		Expect(put.Item["tokenHash"]).To(Equal(&types.AttributeValueMemberS{Value: "FAMILY#0192f8a0-7b00-7000-8000-000000000010"}))
 		Expect(put.Item["status"]).To(Equal(&types.AttributeValueMemberS{Value: "revoked"}))
 	})
 
@@ -74,8 +91,8 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 		now := time.Unix(1_700_000_000, 0).UTC()
 		item := map[string]types.AttributeValue{
 			"tokenHash": &types.AttributeValueMemberS{Value: "old-hash"},
-			"sessionId": &types.AttributeValueMemberS{Value: "family"},
-			"userId":    &types.AttributeValueMemberS{Value: "user"},
+			"sessionId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000010"},
+			"userId":    &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000001"},
 			"status":    &types.AttributeValueMemberS{Value: "consumed"},
 		}
 		for _, tc := range []struct {
@@ -96,6 +113,44 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 			} else {
 				Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(MatchError(tc.want))
 			}
+		}
+	})
+
+	It("rejects malformed persisted user and session IDs before the family-marker transaction", func() {
+		for _, tc := range []struct {
+			name      string
+			sessionID string
+			userID    string
+		}{
+			{name: "malformed session ID", sessionID: "not-a-uuid", userID: "0192f8a0-7b00-7000-8000-000000000001"},
+			{name: "malformed user ID", sessionID: "0192f8a0-7b00-7000-8000-000000000010", userID: "not-a-uuid"},
+			{name: "non-v7 session ID", sessionID: "0192f8a0-7b00-6000-8000-000000000010", userID: "0192f8a0-7b00-7000-8000-000000000001"},
+		} {
+			By(tc.name)
+			api := &fakeAPI{items: map[string]map[string]types.AttributeValue{"old-hash": {
+				"tokenHash": &types.AttributeValueMemberS{Value: "old-hash"},
+				"sessionId": &types.AttributeValueMemberS{Value: tc.sessionID},
+				"userId":    &types.AttributeValueMemberS{Value: tc.userID},
+			}}}
+			store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: time.Unix(1_700_000_000, 0).UTC()}}
+
+			Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(MatchError(auth.ErrInvalidRefreshToken))
+			Expect(api.transactionN).To(Equal(0))
+			Expect(api.transactionIn).To(BeNil())
+		}
+	})
+})
+
+var _ = Describe("RotateRefreshSessionRejectsInvalidPersistenceIDs", func() {
+	It("rejects invalid IDs before issuing a transaction", func() {
+		for _, next := range []auth.RefreshSession{
+			{SessionID: "invalid", UserID: "0192f8a0-7b00-7000-8000-000000000001"},
+			{SessionID: "0192f8a0-7b00-7000-8000-000000000002", UserID: "invalid"},
+		} {
+			api := &fakeAPI{}
+			err := (Store{Client: api}).RotateRefreshSession(context.Background(), "old", next)
+			Expect(err).To(MatchError(ContainSubstring("invalid refresh session ID")))
+			Expect(api.transactionIn).To(BeNil())
 		}
 	})
 })

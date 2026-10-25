@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -36,6 +37,15 @@ const familyMarkerPrefix = "FAMILY#"
 
 func (s Store) Register(ctx context.Context, r auth.Registration) error {
 	u := r.User
+	if !platformid.IsCanonicalUUIDv7(u.ID) {
+		return fmt.Errorf("%w: invalid user ID", auth.ErrValidation)
+	}
+	if r.Refresh.UserID != u.ID {
+		return fmt.Errorf("%w: refresh session user ID does not match user ID", auth.ErrValidation)
+	}
+	if !validRefreshSessionIDs(r.Refresh) {
+		return fmt.Errorf("%w: invalid refresh session ID", auth.ErrValidation)
+	}
 	items := []types.TransactWriteItem{
 		{Put: &types.Put{
 			TableName: aws.String(s.UniquesTable),
@@ -214,6 +224,9 @@ func (s Store) FindByLogin(ctx context.Context, login string) (user.User, error)
 		return user.User{}, user.ErrNotFound
 	}
 	item := out.Items[0]
+	if !platformid.IsCanonicalUUIDv7(attributeString(item, "userId")) {
+		return user.User{}, auth.ErrDependencyUnavailable
+	}
 	created, err := time.Parse(time.RFC3339, attributeString(item, "createdAt"))
 	if err != nil {
 		return user.User{}, fmt.Errorf("decode user: %w", err)
@@ -222,6 +235,9 @@ func (s Store) FindByLogin(ctx context.Context, login string) (user.User, error)
 }
 
 func (s Store) FindByID(ctx context.Context, id string) (user.User, error) {
+	if !platformid.IsCanonicalUUIDv7(id) {
+		return user.User{}, fmt.Errorf("%w: invalid user ID", auth.ErrValidation)
+	}
 	out, err := s.Client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName:      aws.String(s.UsersTable),
 		Key:            map[string]types.AttributeValue{"userId": &types.AttributeValueMemberS{Value: id}},
@@ -233,6 +249,9 @@ func (s Store) FindByID(ctx context.Context, id string) (user.User, error) {
 	if len(out.Item) == 0 {
 		return user.User{}, user.ErrNotFound
 	}
+	if !platformid.IsCanonicalUUIDv7(attributeString(out.Item, "userId")) {
+		return user.User{}, auth.ErrDependencyUnavailable
+	}
 	created, err := time.Parse(time.RFC3339, attributeString(out.Item, "createdAt"))
 	if err != nil {
 		return user.User{}, fmt.Errorf("decode user: %w", err)
@@ -241,6 +260,9 @@ func (s Store) FindByID(ctx context.Context, id string) (user.User, error) {
 }
 
 func (s Store) CreateLoginSession(ctx context.Context, r auth.RefreshSession) error {
+	if !validRefreshSessionIDs(r) {
+		return fmt.Errorf("%w: invalid refresh session ID", auth.ErrValidation)
+	}
 	_, err := s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
 		{ConditionCheck: &types.ConditionCheck{
 			TableName:           aws.String(s.RefreshTable),
@@ -326,8 +348,8 @@ func (s Store) GetRefreshSession(ctx context.Context, tokenHash string) (auth.Re
 	}
 	if len(item.Item) == 0 ||
 		attributeString(item.Item, "tokenHash") != tokenHash ||
-		attributeString(item.Item, "sessionId") == "" ||
-		attributeString(item.Item, "userId") == "" ||
+		!platformid.IsCanonicalUUIDv7(attributeString(item.Item, "sessionId")) ||
+		!platformid.IsCanonicalUUIDv7(attributeString(item.Item, "userId")) ||
 		attributeString(item.Item, "status") != "active" {
 		return auth.RefreshSession{}, auth.ErrInvalidRefreshToken
 	}
@@ -349,7 +371,7 @@ func (s Store) GetRefreshSession(ctx context.Context, tokenHash string) (auth.Re
 		return auth.RefreshSession{}, wrapDependencyError("check refresh session family", err)
 	}
 	if len(marker.Item) > 0 {
-		if attributeString(marker.Item, "sessionId") != sessionID {
+		if !platformid.IsCanonicalUUIDv7(attributeString(marker.Item, "sessionId")) || attributeString(marker.Item, "sessionId") != sessionID {
 			return auth.RefreshSession{}, auth.ErrInvalidRefreshToken
 		}
 		switch attributeString(marker.Item, "status") {
@@ -371,8 +393,25 @@ func (s Store) GetRefreshSession(ctx context.Context, tokenHash string) (auth.Re
 }
 
 func (s Store) RotateRefreshSession(ctx context.Context, oldHash string, next auth.RefreshSession) error {
+	if !validRefreshSessionIDs(next) {
+		return fmt.Errorf("%w: invalid refresh session ID", auth.ErrValidation)
+	}
+	existing, err := s.Client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName:      aws.String(s.RefreshTable),
+		Key:            map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: oldHash}},
+		ConsistentRead: aws.Bool(true),
+	})
+	if err != nil {
+		return wrapDependencyError("find refresh session for rotation", err)
+	}
+	if len(existing.Item) > 0 &&
+		(attributeString(existing.Item, "tokenHash") != oldHash ||
+			!platformid.IsCanonicalUUIDv7(attributeString(existing.Item, "userId")) ||
+			next.UserID != attributeString(existing.Item, "userId")) {
+		return auth.ErrInvalidRefreshToken
+	}
 	now := s.now()
-	_, err := s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
+	_, err = s.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
 		{ConditionCheck: &types.ConditionCheck{
 			TableName: aws.String(s.RefreshTable),
 			Key: map[string]types.AttributeValue{
@@ -392,13 +431,18 @@ func (s Store) RotateRefreshSession(ctx context.Context, oldHash string, next au
 	return nil
 }
 
+func validRefreshSessionIDs(session auth.RefreshSession) bool {
+	return platformid.IsCanonicalUUIDv7(session.SessionID) && platformid.IsCanonicalUUIDv7(session.UserID)
+}
+
 func (s Store) RevokeSessionFamilyByHash(ctx context.Context, tokenHash string) error {
 	item, err := s.Client.GetItem(ctx, &dynamodb.GetItemInput{TableName: aws.String(s.RefreshTable), Key: map[string]types.AttributeValue{"tokenHash": &types.AttributeValueMemberS{Value: tokenHash}}, ConsistentRead: aws.Bool(true)})
 	if err != nil {
 		return wrapDependencyError("find refresh replay", err)
 	}
 	sessionID := attributeString(item.Item, "sessionId")
-	if sessionID == "" {
+	userID := attributeString(item.Item, "userId")
+	if !platformid.IsCanonicalUUIDv7(sessionID) || !platformid.IsCanonicalUUIDv7(userID) {
 		return auth.ErrInvalidRefreshToken
 	}
 	now := s.now()

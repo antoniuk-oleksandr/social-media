@@ -25,7 +25,7 @@ var _ = Describe("refresh persistence", func() {
 		store := integrationStore()
 		now := time.Now().UTC().Truncate(time.Second)
 		raw := "integration-refresh-rotation-token"
-		session := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(raw), SessionID: "refresh-rotation-family", UserID: "refresh-user", CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour)}
+		session := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(raw), SessionID: "0192f8a0-7b00-7000-8000-000000000010", UserID: testUserID, CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour)}
 		Expect(store.CreateLoginSession(context.Background(), session)).To(Succeed())
 
 		svc := refreshIntegrationService(store, now)
@@ -49,13 +49,13 @@ var _ = Describe("refresh persistence", func() {
 		store := integrationStore()
 		now := time.Now().UTC().Truncate(time.Second)
 		expiredRaw := "integration-refresh-expired-token"
-		expired := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(expiredRaw), SessionID: "refresh-expired-family", UserID: "refresh-expired-user", CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Second)}
+		expired := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(expiredRaw), SessionID: "0192f8a0-7b00-7000-8000-000000000011", UserID: testUserID, CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(-time.Second)}
 		Expect(store.CreateLoginSession(context.Background(), expired)).To(Succeed())
 		_, err := store.GetRefreshSession(context.Background(), expired.TokenHash)
 		Expect(err).To(MatchError(authdomain.ErrInvalidRefreshToken))
 
 		revokedRaw := "integration-refresh-revoked-token"
-		revoked := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(revokedRaw), SessionID: "refresh-revoked-family", UserID: "refresh-revoked-user", CreatedAt: now, ExpiresAt: now.Add(time.Hour), Status: "revoked"}
+		revoked := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(revokedRaw), SessionID: "0192f8a0-7b00-7000-8000-000000000012", UserID: testUserID, CreatedAt: now, ExpiresAt: now.Add(time.Hour), Status: "revoked"}
 		_, err = integrationSuite.Client.PutItem(context.Background(), &dynamodb.PutItemInput{TableName: aws.String(integrationSuite.RefreshTable), Item: map[string]types.AttributeValue{
 			"tokenHash": &types.AttributeValueMemberS{Value: revoked.TokenHash},
 			"sessionId": &types.AttributeValueMemberS{Value: revoked.SessionID},
@@ -70,7 +70,7 @@ var _ = Describe("refresh persistence", func() {
 		Expect(errors.Is(err, authdomain.ErrInvalidRefreshToken)).To(BeTrue())
 
 		replayRaw := "integration-refresh-replay-token"
-		replay := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(replayRaw), SessionID: "refresh-replay-family", UserID: "refresh-replay-user", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+		replay := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(replayRaw), SessionID: "0192f8a0-7b00-7000-8000-000000000013", UserID: testUserID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 		Expect(store.CreateLoginSession(context.Background(), replay)).To(Succeed())
 		svc = refreshIntegrationService(store, now)
 		_, err = svc.Refresh(context.Background(), replayRaw)
@@ -84,7 +84,7 @@ var _ = Describe("refresh persistence", func() {
 		store := integrationStore()
 		now := time.Now().UTC().Truncate(time.Second)
 		raw := "integration-refresh-concurrent-token"
-		session := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(raw), SessionID: "refresh-concurrent-family", UserID: "refresh-concurrent-user", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+		session := authdomain.RefreshSession{TokenHash: authdomain.HashRefreshToken(raw), SessionID: "0192f8a0-7b00-7000-8000-000000000014", UserID: testUserID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 		Expect(store.CreateLoginSession(context.Background(), session)).To(Succeed())
 		svc := refreshIntegrationService(store, now)
 		start := make(chan struct{})
@@ -125,8 +125,8 @@ var _ = Describe("refresh persistence", func() {
 		raw := "integration-refresh-after-logout-token"
 		session := authdomain.RefreshSession{
 			TokenHash: authdomain.HashRefreshToken(raw),
-			SessionID: "refresh-after-logout-family",
-			UserID:    "refresh-after-logout-user",
+			SessionID: "0192f8a0-7b00-7000-8000-000000000015",
+			UserID:    testUserID,
 			CreatedAt: now,
 			ExpiresAt: now.Add(time.Hour),
 		}
@@ -157,7 +157,7 @@ func refreshIntegrationService(store authdomain.RefreshStore, now time.Time) *au
 		RefreshStore: store,
 		Users:        refreshIntegrationUserLookup{},
 		Clock:        fixedClock{at: now},
-		Access:       platformjwt.Access{Keys: platformjwt.StaticKey{KID: "refresh-test-key", Secret: []byte("refresh-test-secret")}, KID: "refresh-test-key", Issuer: "social-media", Audience: "social-media-api", TTL: 15 * time.Minute, ID: func() string { return "refresh-jti" }},
+		Access:       platformjwt.Access{Keys: platformjwt.StaticKey{KID: "refresh-test-key", Secret: []byte("refresh-test-secret")}, KID: "refresh-test-key", Issuer: "social-media", Audience: "social-media-api", TTL: 15 * time.Minute, ID: func() string { return "0192f8a0-7b00-7000-8000-000000000003" }},
 		Opaque:       token.Opaque{},
 		AccessTTL:    15 * time.Minute,
 		RefreshTTL:   7 * 24 * time.Hour,
@@ -166,6 +166,8 @@ func refreshIntegrationService(store authdomain.RefreshStore, now time.Time) *au
 
 type refreshIntegrationUserLookup struct{}
 
-func (refreshIntegrationUserLookup) FindByID(context.Context, string) (user.User, error) {
-	return user.User{Role: user.RoleUser, Status: user.StatusActive}, nil
+func (refreshIntegrationUserLookup) FindByID(_ context.Context, id string) (user.User, error) {
+	return user.User{ID: id, Role: user.RoleUser, Status: user.StatusActive}, nil
 }
+
+const testUserID = "0192f8a0-7b00-7000-8000-000000000001"

@@ -22,7 +22,7 @@ func (hs) Hash(string) (string, error) { return "h", nil }
 
 type hi struct{ n int }
 
-func (i *hi) New() (string, error) { i.n++; return "id", nil }
+func (i *hi) New() (string, error) { i.n++; return "0192f8a0-7b00-7000-8000-000000000001", nil }
 
 type hc struct{}
 

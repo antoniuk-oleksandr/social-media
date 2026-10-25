@@ -5,7 +5,7 @@ package authintegration
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,12 +30,10 @@ func TestAuthIntegration(t *testing.T) {
 var _ = BeforeSuite(func() {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-
 	var err error
-	integrationSuite, err = support.StartDynamoDB(ctx, "tests-auth-registration")
-	Expect(err).NotTo(HaveOccurred(), "DynamoDB integration suite must start")
+	integrationSuite, err = support.StartDynamoDB(ctx, "tests-auth")
+	Expect(err).NotTo(HaveOccurred())
 })
-
 var _ = AfterSuite(func() {
 	if integrationSuite != nil {
 		Expect(integrationSuite.Close(context.Background())).To(Succeed())
@@ -43,157 +41,129 @@ var _ = AfterSuite(func() {
 })
 
 var _ = Describe("registration persistence", func() {
-	It("persists the user, uniqueness reservations, and refresh session", func() {
-		registration := fixtures.Registration("integration-persisted-user", "integration_persisted", "persisted@example.com")
-
-		Expect(integrationStore().Register(context.Background(), registration)).To(Succeed())
-
-		assertStringFields(integrationSuite.UsersTable, "userId", registration.User.ID, map[string]string{
-			"username":     registration.User.Username,
-			"email":        registration.User.Email,
-			"passwordHash": registration.User.PasswordHash,
-			"displayName":  registration.User.DisplayName,
-			"role":         string(registration.User.Role),
-			"status":       string(registration.User.Status),
-			"createdAt":    registration.User.CreatedAt.UTC().Format(time.RFC3339),
+	It("persists every user, reservation, and refresh-session attribute with String keys", func() {
+		r := fixtures.Registration("integration-registration-complete", "integration_registration", "registration-complete@example.com")
+		Expect(integrationStore().Register(context.Background(), r)).To(Succeed())
+		assertStringFields(integrationSuite.UsersTable, "userId", r.User.ID, map[string]string{
+			"userId": r.User.ID, "username": r.User.Username, "email": r.User.Email,
+			"passwordHash": r.User.PasswordHash, "displayName": r.User.DisplayName,
+			"role": string(r.User.Role), "status": string(r.User.Status),
+			"createdAt": r.User.CreatedAt.UTC().Format(time.RFC3339),
 		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+registration.User.Email, map[string]string{
-			"userId": registration.User.ID,
+		for _, key := range []string{"EMAIL#" + r.User.Email, "USERNAME#" + r.User.Username} {
+			assertStringFields(integrationSuite.UniquesTable, "uniqueKey", key, map[string]string{
+				"uniqueKey": key, "userId": r.User.ID,
+			})
+		}
+		assertStringFields(integrationSuite.RefreshTable, "tokenHash", r.Refresh.TokenHash, map[string]string{
+			"tokenHash": r.Refresh.TokenHash, "sessionId": r.Refresh.SessionID, "userId": r.Refresh.UserID, "status": "active",
 		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+registration.User.Username, map[string]string{
-			"userId": registration.User.ID,
-		})
-		assertStringFields(integrationSuite.RefreshTable, "tokenHash", registration.Refresh.TokenHash, map[string]string{
-			"sessionId": registration.Refresh.SessionID,
-			"userId":    registration.Refresh.UserID,
-			"status":    "active",
-		})
-		assertNumericFields(integrationSuite.RefreshTable, "tokenHash", registration.Refresh.TokenHash, map[string]string{
-			"createdAt": fmt.Sprint(registration.Refresh.CreatedAt.Unix()),
-			"expiresAt": fmt.Sprint(registration.Refresh.ExpiresAt.Unix()),
-			"ttl":       fmt.Sprint(registration.Refresh.ExpiresAt.Unix()),
-			"version":   "1",
+		assertNumericFields(integrationSuite.RefreshTable, "tokenHash", r.Refresh.TokenHash, map[string]string{
+			"createdAt": strconv.FormatInt(r.Refresh.CreatedAt.Unix(), 10),
+			"expiresAt": strconv.FormatInt(r.Refresh.ExpiresAt.Unix(), 10),
+			"ttl":       strconv.FormatInt(r.Refresh.ExpiresAt.Unix(), 10), "version": "1",
 		})
 	})
 
 	It("rejects duplicate email without partial writes", func() {
-		first := fixtures.Registration("integration-email-owner", "integration_email_owner", "integration-duplicate@example.com")
-		second := fixtures.Registration("integration-email-conflict", "integration_email_conflict", first.User.Email)
+		first := fixtures.Registration("integration-duplicate-email-owner", "duplicate_email_owner", "duplicate@example.com")
+		second := fixtures.Registration("integration-duplicate-email-rejected", "duplicate_email_rejected", first.User.Email)
 		register(first)
-
 		err := integrationStore().Register(context.Background(), second)
 		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, authdomain.ErrEmailTaken)).To(BeTrue())
-
-		assertMissing(integrationSuite.UsersTable, "userId", second.User.ID)
-		assertMissing(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+second.User.Username)
-		assertMissing(integrationSuite.RefreshTable, "tokenHash", second.Refresh.TokenHash)
-		assertStringFields(integrationSuite.UsersTable, "userId", first.User.ID, map[string]string{
-			"username": first.User.Username,
-			"email":    first.User.Email,
-		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+first.User.Email, map[string]string{
-			"userId": first.User.ID,
-		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+first.User.Username, map[string]string{
-			"userId": first.User.ID,
-		})
-		assertStringFields(integrationSuite.RefreshTable, "tokenHash", first.Refresh.TokenHash, map[string]string{
-			"userId": first.User.ID,
-			"status": "active",
-		})
+		assertRejectedRegistrationAbsent(second, first, "email")
+		assertRegistrationPresent(first)
 	})
 
 	It("rejects duplicate username without partial writes", func() {
-		first := fixtures.Registration("integration-username-owner", "integration_duplicate_username", "integration-username-owner@example.com")
-		second := fixtures.Registration("integration-username-conflict", first.User.Username, "integration-username-conflict@example.com")
+		first := fixtures.Registration("integration-duplicate-username-owner", "duplicate_username", "duplicate-username-owner@example.com")
+		second := fixtures.Registration("integration-duplicate-username-rejected", first.User.Username, "duplicate-username-rejected@example.com")
 		register(first)
-
 		err := integrationStore().Register(context.Background(), second)
 		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, authdomain.ErrUsernameTaken)).To(BeTrue())
-
-		assertMissing(integrationSuite.UsersTable, "userId", second.User.ID)
-		assertMissing(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+second.User.Email)
-		assertMissing(integrationSuite.RefreshTable, "tokenHash", second.Refresh.TokenHash)
-		assertStringFields(integrationSuite.UsersTable, "userId", first.User.ID, map[string]string{
-			"username": first.User.Username,
-			"email":    first.User.Email,
-		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+first.User.Email, map[string]string{
-			"userId": first.User.ID,
-		})
-		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+first.User.Username, map[string]string{
-			"userId": first.User.ID,
-		})
-		assertStringFields(integrationSuite.RefreshTable, "tokenHash", first.Refresh.TokenHash, map[string]string{
-			"userId": first.User.ID,
-			"status": "active",
-		})
+		assertRejectedRegistrationAbsent(second, first, "username")
+		assertRegistrationPresent(first)
 	})
 
-	It("translates a dependency timeout", func() {
-		registration := fixtures.Registration("integration-timeout-user", "integration_timeout", "integration-timeout@example.com")
+	It("translates a dependency timeout and does not write a registration", func() {
+		registration := fixtures.Registration("integration-registration-timeout", "registration_timeout", "registration-timeout@example.com")
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 		defer cancel()
 
 		err := integrationStore().Register(ctx, registration)
+		Expect(err).To(HaveOccurred())
 		Expect(errors.Is(err, authdomain.ErrDependencyUnavailable)).To(BeTrue())
+		assertRegistrationAbsent(registration)
 	})
 })
 
 func integrationStore() authdb.Store {
-	return authdb.Store{
-		Client:       integrationSuite.Client,
-		UsersTable:   integrationSuite.UsersTable,
-		UniquesTable: integrationSuite.UniquesTable,
-		RefreshTable: integrationSuite.RefreshTable,
+	return authdb.Store{Client: integrationSuite.Client, UsersTable: integrationSuite.UsersTable, UniquesTable: integrationSuite.UniquesTable, RefreshTable: integrationSuite.RefreshTable}
+}
+func register(r authdomain.Registration) {
+	ExpectWithOffset(1, integrationStore().Register(context.Background(), r)).To(Succeed())
+}
+
+func assertRegistrationPresent(r authdomain.Registration) {
+	assertStringFields(integrationSuite.UsersTable, "userId", r.User.ID, map[string]string{"userId": r.User.ID, "email": r.User.Email, "username": r.User.Username})
+	assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+r.User.Email, map[string]string{"userId": r.User.ID})
+	assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+r.User.Username, map[string]string{"userId": r.User.ID})
+	assertStringFields(integrationSuite.RefreshTable, "tokenHash", r.Refresh.TokenHash, map[string]string{"userId": r.User.ID, "status": "active"})
+}
+
+func assertRegistrationAbsent(r authdomain.Registration) {
+	assertMissing(integrationSuite.UsersTable, "userId", r.User.ID)
+	assertMissing(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+r.User.Email)
+	assertMissing(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+r.User.Username)
+	assertMissing(integrationSuite.RefreshTable, "tokenHash", r.Refresh.TokenHash)
+}
+
+func assertRejectedRegistrationAbsent(rejected, owner authdomain.Registration, duplicateField string) {
+	assertMissing(integrationSuite.UsersTable, "userId", rejected.User.ID)
+	assertMissing(integrationSuite.RefreshTable, "tokenHash", rejected.Refresh.TokenHash)
+
+	switch duplicateField {
+	case "email":
+		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+owner.User.Email, map[string]string{"userId": owner.User.ID})
+		assertMissing(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+rejected.User.Username)
+	case "username":
+		assertStringFields(integrationSuite.UniquesTable, "uniqueKey", "USERNAME#"+owner.User.Username, map[string]string{"userId": owner.User.ID})
+		assertMissing(integrationSuite.UniquesTable, "uniqueKey", "EMAIL#"+rejected.User.Email)
+	default:
+		Fail("unsupported duplicate field: " + duplicateField)
 	}
 }
 
-func register(registration authdomain.Registration) {
-	ExpectWithOffset(1, integrationStore().Register(context.Background(), registration)).To(Succeed())
-}
-
 func assertStringFields(table, keyName, keyValue string, expected map[string]string) {
-	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{
-		TableName: aws.String(table),
-		Key:       map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}},
-	})
+	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(table), Key: map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}}})
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	ExpectWithOffset(1, out.Item).NotTo(BeEmpty())
 	for name, want := range expected {
 		value, ok := out.Item[name].(*types.AttributeValueMemberS)
+		ExpectWithOffset(1, ok).To(BeTrue(), name)
 		if !ok {
-			Fail(fmt.Sprintf("item %q field %q should be a string", keyValue, name), 1)
 			return
 		}
-		ExpectWithOffset(1, value.Value).To(Equal(want), "item %q field %q", keyValue, name)
+		ExpectWithOffset(1, value.Value).To(Equal(want), name)
 	}
 }
-
-func assertMissing(table, keyName, keyValue string) {
-	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{
-		TableName: aws.String(table),
-		Key:       map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}},
-	})
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	ExpectWithOffset(1, out.Item).To(BeEmpty())
-}
-
 func assertNumericFields(table, keyName, keyValue string, expected map[string]string) {
-	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{
-		TableName: aws.String(table),
-		Key:       map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}},
-	})
+	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(table), Key: map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}}})
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	ExpectWithOffset(1, out.Item).NotTo(BeEmpty())
 	for name, want := range expected {
 		value, ok := out.Item[name].(*types.AttributeValueMemberN)
+		ExpectWithOffset(1, ok).To(BeTrue(), name)
 		if !ok {
-			Fail(fmt.Sprintf("item %q field %q should be numeric", keyValue, name), 1)
 			return
 		}
-		ExpectWithOffset(1, value.Value).To(Equal(want), "item %q field %q", keyValue, name)
+		ExpectWithOffset(1, value.Value).To(Equal(want), name)
 	}
+}
+func assertMissing(table, keyName, keyValue string) {
+	out, err := integrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(table), Key: map[string]types.AttributeValue{keyName: &types.AttributeValueMemberS{Value: keyValue}}})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, out.Item).To(BeEmpty())
 }
