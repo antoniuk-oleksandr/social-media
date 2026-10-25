@@ -187,7 +187,8 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = [
       "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.users_table}",
       "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.uniques_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.refresh_table}"
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.refresh_table}",
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.posts_table}"
     ]
   }
 
@@ -214,7 +215,8 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     ]
     resources = [
       "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.auth_function}",
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}"
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}",
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.posts_function}"
     ]
   }
 
@@ -232,7 +234,8 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     ]
     resources = [
       "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.auth_function}",
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.users_function}"
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.users_function}",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.posts_function}"
     ]
   }
 
@@ -308,6 +311,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = [
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.auth_function}-execution",
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.users_function}-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.posts_function}-execution",
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.github_actions_role_name}"
     ]
   }
@@ -362,6 +366,19 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     effect    = "Allow"
     actions   = ["iam:PassRole"]
     resources = [aws_iam_role.users_lambda.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["lambda.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "PassPostsLambdaRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.posts_lambda.arn]
 
     condition {
       test     = "StringEquals"

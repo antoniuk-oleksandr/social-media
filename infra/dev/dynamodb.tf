@@ -78,9 +78,20 @@ resource "aws_dynamodb_table" "posts" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "postId"
 
-  attribute { name = "postId" type = "S" }
-  attribute { name = "feedPartition" type = "S" }
-  attribute { name = "createdAtEpoch" type = "N" }
+  attribute {
+    name = "postId"
+    type = "S"
+  }
+
+  attribute {
+    name = "feedPartition"
+    type = "S"
+  }
+
+  attribute {
+    name = "createdAtEpoch"
+    type = "N"
+  }
 
   global_secondary_index {
     name            = "FeedPostsIndex"
