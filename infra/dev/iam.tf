@@ -184,12 +184,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "dynamodb:UntagResource",
       "dynamodb:UpdateTable"
     ]
-    resources = [
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.users_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.uniques_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.refresh_table}",
-      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.posts_table}"
-    ]
+    resources = ["arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-*"]
   }
 
   statement {
@@ -213,11 +208,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "lambda:UpdateFunctionCode",
       "lambda:UpdateFunctionConfiguration"
     ]
-    resources = [
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.auth_function}",
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}",
-      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.posts_function}"
-    ]
+    resources = ["arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.name_prefix}-*"]
   }
 
   statement {
@@ -232,11 +223,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "logs:TagResource",
       "logs:UntagResource"
     ]
-    resources = [
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.auth_function}",
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.users_function}",
-      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.posts_function}"
-    ]
+    resources = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-*"]
   }
 
   statement {
@@ -260,7 +247,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "s3:PutBucketVersioning",
       "s3:PutEncryptionConfiguration"
     ]
-    resources = ["arn:aws:s3:::${local.media_bucket_name}"]
+    resources = ["arn:aws:s3:::${local.name_prefix}-*"]
   }
 
   statement {
@@ -274,7 +261,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "ssm:PutParameter",
       "ssm:RemoveTagsFromResource"
     ]
-    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"]
   }
 
   statement {
@@ -309,9 +296,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "iam:UpdateAssumeRolePolicy"
     ]
     resources = [
-      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.auth_function}-execution",
-      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.users_function}-execution",
-      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.posts_function}-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-*-execution",
       "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.github_actions_role_name}"
     ]
   }
@@ -349,23 +334,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
-    sid       = "PassAuthLambdaRole"
+    sid       = "PassApplicationLambdaRoles"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.auth_lambda.arn]
-
-    condition {
-      test     = "StringEquals"
-      variable = "iam:PassedToService"
-      values   = ["lambda.amazonaws.com"]
-    }
-  }
-
-  statement {
-    sid       = "PassUsersLambdaRole"
-    effect    = "Allow"
-    actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.users_lambda.arn]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-*-execution"]
 
     condition {
       test     = "StringEquals"
@@ -391,7 +363,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     sid       = "ReadSigningKeyParameter"
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/${var.environment}/*"]
   }
 }
 
