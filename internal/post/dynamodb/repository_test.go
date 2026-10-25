@@ -13,10 +13,11 @@ import (
 )
 
 type fakePutAPI struct {
-	input    *dynamodb.PutItemInput
-	getInput *dynamodb.GetItemInput
-	get      *dynamodb.GetItemOutput
-	err      error
+	input       *dynamodb.PutItemInput
+	getInput    *dynamodb.GetItemInput
+	deleteInput *dynamodb.DeleteItemInput
+	get         *dynamodb.GetItemOutput
+	err         error
 }
 
 func (f *fakePutAPI) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -30,6 +31,11 @@ func (f *fakePutAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ 
 		return f.get, f.err
 	}
 	return &dynamodb.GetItemOutput{}, f.err
+}
+
+func (f *fakePutAPI) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	f.deleteInput = input
+	return &dynamodb.DeleteItemOutput{}, f.err
 }
 
 func TestRepositoryCreateMapsPostAndUsesConditionalPut(t *testing.T) {
@@ -312,6 +318,50 @@ func TestRepositoryGetByIDTranslatesUntrustedPersistedPostFields(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), tc.leak) {
 				t.Fatalf("repository error leaked storage detail %q in %q", tc.leak, err)
+			}
+		})
+	}
+}
+
+func TestRepositoryDeleteUsesOwnerAndActiveCondition(t *testing.T) {
+	api := &fakePutAPI{}
+	repository := &Repository{Client: api, TableName: "posts-test"}
+	id := "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	ownerID := "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	if err := repository.Delete(context.Background(), id, ownerID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if api.deleteInput == nil || *api.deleteInput.TableName != "posts-test" {
+		t.Fatalf("DeleteItem input = %+v", api.deleteInput)
+	}
+	if got := api.deleteInput.Key["postId"].(*types.AttributeValueMemberS).Value; got != id {
+		t.Fatalf("postId = %q, want %q", got, id)
+	}
+	if got := *api.deleteInput.ConditionExpression; got != "attribute_exists(postId) AND authorId = :ownerId AND #postStatus = :active" {
+		t.Fatalf("condition = %q", got)
+	}
+	if api.deleteInput.ExpressionAttributeValues[":ownerId"].(*types.AttributeValueMemberS).Value != ownerID {
+		t.Fatalf("owner expression value = %#v", api.deleteInput.ExpressionAttributeValues[":ownerId"])
+	}
+}
+
+func TestRepositoryDeleteTranslatesConditionalAndInfrastructureFailures(t *testing.T) {
+	id := "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	ownerID := "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	conditional := &types.ConditionalCheckFailedException{}
+	for _, tc := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "missing or inactive record", err: conditional, want: post.ErrNotFound},
+		{name: "dependency unavailable", err: errors.New("DynamoDB unavailable"), want: post.ErrDependencyUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api := &fakePutAPI{err: tc.err}
+			err := (&Repository{Client: api, TableName: "posts-test"}).Delete(context.Background(), id, ownerID)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
 			}
 		})
 	}

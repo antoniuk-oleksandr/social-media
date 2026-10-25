@@ -154,3 +154,49 @@ var _ = Describe("GET post by UUIDv7 persistence", func() {
 		}
 	})
 })
+
+var _ = Describe("DELETE post persistence", func() {
+	const ownerID = "0192f8a0-7b00-7000-8000-000000000731"
+	const otherID = "0192f8a0-7b00-7000-8000-000000000732"
+
+	putActivePost := func(id string) {
+		_, err := userIntegrationSuite.Client.PutItem(context.Background(), &dynamodb.PutItemInput{
+			TableName: aws.String(postsTable),
+			Item: map[string]types.AttributeValue{
+				"postId": &types.AttributeValueMemberS{Value: id}, "entityType": &types.AttributeValueMemberS{Value: "post"}, "authorId": &types.AttributeValueMemberS{Value: ownerID},
+				"content": &types.AttributeValueMemberS{Value: "delete me"}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: "2026-10-24T12:00:00Z"},
+				"createdAtEpoch": &types.AttributeValueMemberN{Value: "1792843200000"}, "feedPartition": &types.AttributeValueMemberS{Value: "GLOBAL"},
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	It("deletes the owner post and makes a repeated delete not found", func() {
+		id := "0192f8a0-7b00-7000-8000-000000000733"
+		putActivePost(id)
+		repository := &postdb.Repository{Client: userIntegrationSuite.Client, TableName: postsTable}
+		service := postfeature.NewService(repository, nil, nil)
+		Expect(service.Delete(context.Background(), id, ownerID)).To(Succeed())
+		Expect(service.Delete(context.Background(), id, ownerID)).To(MatchError(postfeature.ErrNotFound))
+		stored, err := userIntegrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(postsTable), Key: map[string]types.AttributeValue{"postId": &types.AttributeValueMemberS{Value: id}}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.Item).To(BeEmpty())
+	})
+
+	It("rejects a non-owner without deleting the existing post", func() {
+		id := "0192f8a0-7b00-7000-8000-000000000734"
+		putActivePost(id)
+		repository := &postdb.Repository{Client: userIntegrationSuite.Client, TableName: postsTable}
+		service := postfeature.NewService(repository, nil, nil)
+		Expect(service.Delete(context.Background(), id, otherID)).To(MatchError(postfeature.ErrForbidden))
+		stored, err := userIntegrationSuite.Client.GetItem(context.Background(), &dynamodb.GetItemInput{TableName: aws.String(postsTable), Key: map[string]types.AttributeValue{"postId": &types.AttributeValueMemberS{Value: id}}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.Item["status"]).To(Equal(&types.AttributeValueMemberS{Value: "active"}))
+	})
+
+	It("maps a missing post to not found", func() {
+		repository := &postdb.Repository{Client: userIntegrationSuite.Client, TableName: postsTable}
+		service := postfeature.NewService(repository, nil, nil)
+		Expect(service.Delete(context.Background(), "0192f8a0-7b00-7000-8000-000000000735", ownerID)).To(MatchError(postfeature.ErrNotFound))
+	})
+})
