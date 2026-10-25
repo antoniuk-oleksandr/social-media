@@ -31,11 +31,11 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 		f := &fakeClient{err: &types.ResourceInUseException{}}
 		count := 0
 		e := run(context.Background(), func(context.Context, string) (aws.Config, error) { return aws.Config{}, nil }, func(aws.Config) tableCreator { return f }, func(string, ...any) (int, error) { count++; return 0, nil })
-		if e != nil || f.n != 4 || count != 4 {
+		if e != nil || f.n != 5 || count != 5 {
 			Expect(false).To(BeTrue(), fmt.Sprintf("e=%v n=%d count=%d", e, f.n, count))
 		}
-		if len(f.inputs) != 4 {
-			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 4", len(f.inputs)))
+		if len(f.inputs) != 5 {
+			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 5", len(f.inputs)))
 		}
 		assertIndex := func(table int, name, attribute string) {
 			input := f.inputs[table]
@@ -71,6 +71,7 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 			Expect(false).To(BeTrue(), fmt.Sprintf("index %q not found in %#v", name, input.GlobalSecondaryIndexes))
 		}
 		assertCompositeIndex(3, "FeedPostsIndex", "feedPartition", "createdAtEpoch")
+		assertCompositeIndex(4, "ActiveAdsIndex", "status", "createdAtEpoch")
 		if len(f.inputs[1].GlobalSecondaryIndexes) != 0 {
 			Expect(false).To(BeTrue(), fmt.Sprintf("uniques GSIs=%d, want 0", len(f.inputs[1].GlobalSecondaryIndexes)))
 		}
