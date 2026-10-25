@@ -51,6 +51,12 @@ resource "aws_apigatewayv2_route" "posts_by_id" {
   target    = "integrations/${aws_apigatewayv2_integration.posts.id}"
 }
 
+resource "aws_apigatewayv2_route" "posts_delete_by_id" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "DELETE /api/v1/posts/{postId}"
+  target    = "integrations/${aws_apigatewayv2_integration.posts.id}"
+}
+
 resource "aws_apigatewayv2_route" "auth_register" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /api/v1/auth/register"

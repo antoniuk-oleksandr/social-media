@@ -9,6 +9,7 @@ import (
 type Service interface {
 	Create(context.Context, CreateCommand) (Post, error)
 	GetByID(context.Context, string) (Post, error)
+	Delete(context.Context, string, string) error
 }
 
 type service struct {
@@ -49,4 +50,18 @@ func (s *service) GetByID(ctx context.Context, id string) (Post, error) {
 		return Post{}, ErrInvalidID
 	}
 	return s.repository.GetByID(ctx, id)
+}
+
+func (s *service) Delete(ctx context.Context, id, ownerID string) error {
+	if !validUUIDv7(id) {
+		return ErrInvalidID
+	}
+	value, err := s.repository.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if value.AuthorID != ownerID {
+		return ErrForbidden
+	}
+	return s.repository.Delete(ctx, id, ownerID)
 }

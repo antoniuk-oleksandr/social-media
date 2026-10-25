@@ -13,6 +13,7 @@ var (
 	ErrValidation            = errors.New("invalid post content")
 	ErrInvalidID             = errors.New("invalid post id")
 	ErrNotFound              = errors.New("post not found")
+	ErrForbidden             = errors.New("post ownership required")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
 )
 
@@ -32,6 +33,7 @@ type CreateCommand struct {
 type Repository interface {
 	Create(context.Context, Post) error
 	GetByID(context.Context, string) (Post, error)
+	Delete(context.Context, string, string) error
 }
 
 type IDGenerator interface {

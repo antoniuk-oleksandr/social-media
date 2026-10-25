@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -14,6 +15,7 @@ import (
 type API interface {
 	PutItem(context.Context, *dynamodb.PutItemInput, ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	DeleteItem(context.Context, *dynamodb.DeleteItemInput, ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
 }
 
 type Repository struct {
@@ -71,6 +73,27 @@ func (r *Repository) GetByID(ctx context.Context, id string) (post.Post, error) 
 		return post.Post{}, post.ErrDependencyUnavailable
 	}
 	return value, nil
+}
+
+func (r *Repository) Delete(ctx context.Context, id, ownerID string) error {
+	_, err := r.Client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName:                aws.String(r.TableName),
+		Key:                      map[string]types.AttributeValue{"postId": &types.AttributeValueMemberS{Value: id}},
+		ConditionExpression:      aws.String("attribute_exists(postId) AND authorId = :ownerId AND #postStatus = :active"),
+		ExpressionAttributeNames: map[string]string{"#postStatus": "status"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":ownerId": &types.AttributeValueMemberS{Value: ownerID},
+			":active":  &types.AttributeValueMemberS{Value: "active"},
+		},
+	})
+	if err == nil {
+		return nil
+	}
+	var conditionalFailure *types.ConditionalCheckFailedException
+	if errors.As(err, &conditionalFailure) {
+		return post.ErrNotFound
+	}
+	return post.ErrDependencyUnavailable
 }
 
 func attributeString(item map[string]types.AttributeValue, key string) string {

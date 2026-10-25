@@ -12,15 +12,29 @@ import (
 )
 
 type fakeRepository struct {
-	value Post
-	err   error
-	id    string
+	value       Post
+	err         error
+	getErr      error
+	deleteErr   error
+	id          string
+	deleteID    string
+	deleteOwner string
 }
 
 func (f *fakeRepository) Create(_ context.Context, value Post) error { f.value = value; return f.err }
 func (f *fakeRepository) GetByID(_ context.Context, id string) (Post, error) {
 	f.id = id
+	if f.getErr != nil {
+		return Post{}, f.getErr
+	}
 	return f.value, f.err
+}
+func (f *fakeRepository) Delete(_ context.Context, id, ownerID string) error {
+	f.deleteID, f.deleteOwner = id, ownerID
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	return f.err
 }
 
 type fakeIDs struct {
@@ -332,6 +346,136 @@ func TestGetByIDMapsDomainErrorsAndDoesNotLeakDetails(t *testing.T) {
 			}
 			if tc.leak != "" && strings.Contains(response.Body.String(), tc.leak) {
 				t.Fatalf("response leaked infrastructure detail: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestDeleteServiceValidatesOwnershipAndDelegatesOnlyToOwner(t *testing.T) {
+	const postID = "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	const ownerID = "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	for _, tc := range []struct {
+		name       string
+		id         string
+		owner      string
+		value      Post
+		getErr     error
+		deleteErr  error
+		wantErr    error
+		wantDelete bool
+	}{
+		{name: "invalid UUIDv7", id: "not-a-uuid", owner: ownerID, value: Post{ID: postID, AuthorID: ownerID}, wantErr: ErrInvalidID},
+		{name: "missing post", id: postID, owner: ownerID, getErr: ErrNotFound, wantErr: ErrNotFound},
+		{name: "non-owner", id: postID, owner: "0192c5f4-7b2a-7abc-8def-1234567890ac", value: Post{ID: postID, AuthorID: ownerID}, wantErr: ErrForbidden},
+		{name: "owner dependency failure", id: postID, owner: ownerID, value: Post{ID: postID, AuthorID: ownerID}, deleteErr: ErrDependencyUnavailable, wantErr: ErrDependencyUnavailable, wantDelete: true},
+		{name: "owner success", id: postID, owner: ownerID, value: Post{ID: postID, AuthorID: ownerID}, wantDelete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepository{value: tc.value, getErr: tc.getErr, deleteErr: tc.deleteErr}
+			err := NewService(repo, fakeIDs{}, fakeClock{}).Delete(context.Background(), tc.id, tc.owner)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Delete() error = %v, want %v", err, tc.wantErr)
+			}
+			if (repo.deleteID != "") != tc.wantDelete {
+				t.Fatalf("delete called = %t, want %t", repo.deleteID != "", tc.wantDelete)
+			}
+			if tc.wantDelete && (repo.deleteID != tc.id || repo.deleteOwner != tc.owner) {
+				t.Fatalf("delete arguments = %q/%q", repo.deleteID, repo.deleteOwner)
+			}
+		})
+	}
+}
+
+func TestDeleteHandlerMapsContractResponsesAndDoesNotLeakInfrastructureErrors(t *testing.T) {
+	const postID = "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	const ownerID = "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	for _, tc := range []struct {
+		name       string
+		repo       *fakeRepository
+		wantStatus int
+		wantCode   string
+		leak       string
+	}{
+		{name: "unauthenticated", repo: &fakeRepository{}, wantStatus: http.StatusUnauthorized, wantCode: "UNAUTHORIZED"},
+		{name: "non-owner", repo: &fakeRepository{value: Post{ID: postID, AuthorID: "0192c5f4-7b2a-7abc-8def-1234567890ac"}}, wantStatus: http.StatusForbidden, wantCode: "FORBIDDEN"},
+		{name: "missing", repo: &fakeRepository{getErr: ErrNotFound}, wantStatus: http.StatusNotFound, wantCode: "NOT_FOUND"},
+		{name: "infrastructure error", repo: &fakeRepository{getErr: errors.New("DynamoDB connection refused")}, wantStatus: http.StatusInternalServerError, wantCode: "INTERNAL_ERROR", leak: "DynamoDB connection refused"},
+		{name: "dependency unavailable", repo: &fakeRepository{getErr: ErrDependencyUnavailable}, wantStatus: http.StatusServiceUnavailable, wantCode: "SERVICE_UNAVAILABLE", leak: "dependency unavailable"},
+		{name: "owner success", repo: &fakeRepository{value: Post{ID: postID, AuthorID: ownerID}}, wantStatus: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewHandler(NewService(tc.repo, fakeIDs{}, fakeClock{}), nil)
+			router := NewRouter(handler, fakeAuthenticator{id: ownerID})
+			request := httptest.NewRequest(http.MethodDelete, "/api/v1/posts/"+postID, nil)
+			if tc.name != "unauthenticated" {
+				request.Header.Set("Authorization", "Bearer token")
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != tc.wantStatus || (tc.wantCode != "" && !strings.Contains(response.Body.String(), `"code":"`+tc.wantCode+`"`)) {
+				t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+			}
+			if tc.wantStatus == http.StatusNoContent && response.Body.Len() != 0 {
+				t.Fatalf("204 response body = %q", response.Body.String())
+			}
+			if tc.leak != "" && strings.Contains(response.Body.String(), tc.leak) {
+				t.Fatalf("response leaked infrastructure detail: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestDeleteHandlerRejectsInvalidUUIDv7BeforeRepository(t *testing.T) {
+	const ownerID = "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	repo := &fakeRepository{value: Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab", AuthorID: ownerID}}
+	router := NewRouter(NewHandler(NewService(repo, fakeIDs{}, fakeClock{}), nil), fakeAuthenticator{id: ownerID})
+	for _, id := range []string{"0192C5F4-7B2A-7ABD-8DEF-1234567890AB", "0192c5f4-7b2a-6abd-8def-1234567890ab", "1234567890"} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodDelete, "/api/v1/posts/"+id, nil)
+		request.Header.Set("Authorization", "Bearer token")
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"code":"VALIDATION_FAILED"`) {
+			t.Fatalf("id %q status/body = %d/%s", id, response.Code, response.Body.String())
+		}
+	}
+	if repo.id != "" || repo.deleteID != "" {
+		t.Fatalf("repository called for invalid ID: get=%q delete=%q", repo.id, repo.deleteID)
+	}
+}
+
+func TestDeleteHandlerLogsCompletedAndFailedRequests(t *testing.T) {
+	const postID = "0192c5f4-7b2a-7abd-8def-1234567890ab"
+	const ownerID = "0192c5f4-7b2a-7abc-8def-1234567890ab"
+	for _, tc := range []struct {
+		name       string
+		repo       *fakeRepository
+		wantStatus int
+		wantInfo   string
+		wantError  string
+	}{
+		{name: "success", repo: &fakeRepository{value: Post{ID: postID, AuthorID: ownerID}}, wantStatus: http.StatusNoContent, wantInfo: "post deletion completed"},
+		{name: "failure", repo: &fakeRepository{getErr: ErrNotFound}, wantStatus: http.StatusNotFound, wantError: "post deletion failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := &captureLogger{}
+			handler := NewHandler(NewService(tc.repo, fakeIDs{}, fakeClock{}), logger)
+			request := httptest.NewRequest(http.MethodDelete, "/api/v1/posts/"+postID, nil)
+			request.Header.Set("Authorization", "Bearer token")
+			response := httptest.NewRecorder()
+			NewRouter(handler, fakeAuthenticator{id: ownerID}).ServeHTTP(response, request)
+
+			if response.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tc.wantStatus)
+			}
+			if logger.infoMessage != tc.wantInfo || logger.errorMessage != tc.wantError {
+				t.Fatalf("log messages = info %q/error %q, want info %q/error %q", logger.infoMessage, logger.errorMessage, tc.wantInfo, tc.wantError)
+			}
+			fields := logger.infoFields
+			if tc.wantError != "" {
+				fields = logger.errorFields
+			}
+			if !hasLogField(fields, "post_id", postID) {
+				t.Fatalf("log fields = %#v, missing post_id", fields)
 			}
 		})
 	}

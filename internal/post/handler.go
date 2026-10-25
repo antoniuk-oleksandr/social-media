@@ -117,6 +117,45 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusOK, ToResponse(value))
 }
 
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	status := http.StatusNoContent
+	var requestErr error
+	postID := chi.URLParam(r, "postId")
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logDeleteRequest(rid, status, requestErr, postID, time.Since(startedAt))
+	}()
+
+	ownerID, ok := authenticatedUserID(r)
+	if !ok {
+		requestErr = errors.New("authentication required")
+		writeError(loggedWriter, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required", rid)
+		return
+	}
+	if err := h.service.Delete(r.Context(), postID, ownerID); err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrInvalidID):
+			status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid post ID"
+		case errors.Is(err, ErrForbidden):
+			status, code, message = http.StatusForbidden, "FORBIDDEN", "You do not own this post"
+		case errors.Is(err, ErrNotFound):
+			status, code, message = http.StatusNotFound, "NOT_FOUND", "Post not found"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	loggedWriter.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) logGetRequest(requestID string, status int, requestErr error, postID *string, duration time.Duration) {
 	if h.logger == nil {
 		return
@@ -163,6 +202,29 @@ func (h *Handler) logCreateRequest(requestID string, status int, requestErr erro
 		return
 	}
 	if err := h.logger.Info("post request completed", fields...); err != nil {
+		return
+	}
+}
+
+func (h *Handler) logDeleteRequest(requestID string, status int, requestErr error, postID string, duration time.Duration) {
+	if h.logger == nil {
+		return
+	}
+	fields := []logging.Field{
+		logging.String("request_id", requestID),
+		logging.String("route", "DELETE /api/v1/posts/{postId}"),
+		logging.String("status", strconv.Itoa(status)),
+		logging.String("duration", duration.String()),
+		logging.String("post_id", postID),
+	}
+	if requestErr != nil {
+		fields = append(fields, logging.Error(requestErr))
+		if err := h.logger.Error("post deletion failed", fields...); err != nil {
+			return
+		}
+		return
+	}
+	if err := h.logger.Info("post deletion completed", fields...); err != nil {
 		return
 	}
 }
