@@ -17,16 +17,33 @@ import (
 )
 
 type handlerService struct {
-	value User
-	err   error
-	id    string
-	calls int
+	value   User
+	err     error
+	id      string
+	command UpdateProfileCommand
+	calls   int
 }
 
 func (s *handlerService) GetByID(_ context.Context, id string) (User, error) {
 	s.calls++
 	s.id = id
 	return s.value, s.err
+}
+
+func (s *handlerService) UpdateProfile(_ context.Context, command UpdateProfileCommand) (User, error) {
+	s.calls++
+	s.id = command.UserID
+	s.command = command
+	return s.value, s.err
+}
+
+type handlerAuthenticator struct {
+	id  string
+	err error
+}
+
+func (a handlerAuthenticator) Authenticate(context.Context, string) (string, error) {
+	return a.id, a.err
 }
 
 type handlerLogger struct {
@@ -227,6 +244,132 @@ var _ = Describe("User service and HTTP handler", func() {
 		Expect(response.Code).To(Equal(http.StatusOK))
 		Expect(response.Body.String()).To(ContainSubstring(`"id":"` + id + `"`))
 		Expect(strings.TrimSpace(response.Body.String())).To(ContainSubstring(`"createdAt"`))
+	})
+
+	Describe("PATCH /api/v1/users/me", func() {
+		It("updates the authenticated user's profile and returns the public profile", func() {
+			id := profileID()
+			service := &handlerService{value: User{ID: id, Username: "alice_smith", DisplayName: "Alice Smith", Role: RoleUser, CreatedAt: time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)}}
+			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice Smith","username":"Alice_Smith"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request = WithAuthenticatedUserID(request, id)
+			response := httptest.NewRecorder()
+
+			NewHandler(service).UpdateMe(response, request)
+
+			Expect(response.Code).To(Equal(http.StatusOK))
+			Expect(response.Body.String()).To(MatchJSON(`{"id":"0192f8a0-7b00-7000-8000-000000000001","username":"alice_smith","displayName":"Alice Smith","role":"user","createdAt":"2026-10-24T12:00:00Z"}`))
+			Expect(service.command.UserID).To(Equal(id))
+			Expect(*service.command.Username).To(Equal("Alice_Smith"))
+		})
+
+		It("rejects a direct unauthenticated update", func() {
+			service := &handlerService{}
+			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+
+			NewHandler(service).UpdateMe(response, request)
+
+			Expect(response.Code).To(Equal(http.StatusUnauthorized))
+			Expect(response.Body.String()).To(MatchJSON(`{"error":{"code":"UNAUTHORIZED","message":"Authentication required","requestId":"req-local"}}`))
+			Expect(service.calls).To(BeZero())
+		})
+
+		DescribeTable("rejects invalid request bodies", func(contentType, body string, status int, code string) {
+			service := &handlerService{}
+			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(body))
+			request.Header.Set("Content-Type", contentType)
+			request = WithAuthenticatedUserID(request, profileID())
+			response := httptest.NewRecorder()
+
+			NewHandler(service).UpdateMe(response, request)
+
+			Expect(response.Code).To(Equal(status))
+			var bodyResponse errorResponse
+			Expect(json.Unmarshal(response.Body.Bytes(), &bodyResponse)).To(Succeed())
+			Expect(bodyResponse.Error.Code).To(Equal(code))
+			Expect(service.calls).To(BeZero())
+		},
+			Entry("wrong content type", "text/plain", `{}`, http.StatusBadRequest, "INVALID_JSON"),
+			Entry("malformed JSON", "application/json", `{"displayName":`, http.StatusBadRequest, "INVALID_JSON"),
+			Entry("unknown field", "application/json", `{"nickname":"Alice"}`, http.StatusBadRequest, "INVALID_JSON"),
+			Entry("duplicate field", "application/json", `{"displayName":"Alice","displayName":"Bob"}`, http.StatusBadRequest, "INVALID_JSON"),
+			Entry("trailing value", "application/json", `{"displayName":"Alice"} {}`, http.StatusBadRequest, "INVALID_JSON"),
+			Entry("oversized body", "application/json", `{"displayName":"`+strings.Repeat("x", 64<<10)+`"}`, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE"),
+		)
+
+		It("translates validation, conflict, not-found, dependency, and internal errors", func() {
+			for _, test := range []struct {
+				err    error
+				status int
+				code   string
+			}{
+				{ErrValidation, http.StatusUnprocessableEntity, "VALIDATION_FAILED"},
+				{ErrUsernameTaken, http.StatusConflict, "USERNAME_TAKEN"},
+				{ErrNotFound, http.StatusNotFound, "NOT_FOUND"},
+				{ErrDependencyUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"},
+				{errors.New("unexpected"), http.StatusInternalServerError, "INTERNAL_ERROR"},
+			} {
+				request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+				request.Header.Set("Content-Type", "application/json")
+				request = WithAuthenticatedUserID(request, profileID())
+				response := httptest.NewRecorder()
+				NewHandler(&handlerService{err: test.err}).UpdateMe(response, request)
+				Expect(response.Code).To(Equal(test.status))
+				var bodyResponse errorResponse
+				Expect(json.Unmarshal(response.Body.Bytes(), &bodyResponse)).To(Succeed())
+				Expect(bodyResponse.Error.Code).To(Equal(test.code))
+			}
+		})
+
+		It("enforces authentication in the router and passes the verified subject", func() {
+			service := &handlerService{value: User{ID: profileID(), Username: "alice", DisplayName: "Alice", Role: RoleUser, CreatedAt: time.Now()}}
+			router := NewRouter(NewHandler(service), handlerAuthenticator{id: profileID()})
+			unauthenticated := httptest.NewRecorder()
+			router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`)))
+			Expect(unauthenticated.Code).To(Equal(http.StatusUnauthorized))
+
+			invalid := httptest.NewRecorder()
+			badAuth := NewRouter(NewHandler(service), handlerAuthenticator{err: errors.New("bad token")})
+			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+			request.Header.Set("Authorization", "Bearer bad")
+			badAuth.ServeHTTP(invalid, request)
+			Expect(invalid.Code).To(Equal(http.StatusUnauthorized))
+			Expect(invalid.Body.String()).To(MatchJSON(`{"error":{"code":"INVALID_TOKEN","message":"Invalid access token","requestId":"req-local"}}`))
+
+			valid := httptest.NewRecorder()
+			request = httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+			request.Header.Set("Authorization", "Bearer good")
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(valid, request)
+			Expect(valid.Code).To(Equal(http.StatusOK))
+			Expect(service.command.UserID).To(Equal(profileID()))
+		})
+
+		It("logs completed and failed profile updates", func() {
+			id := profileID()
+			successLogger := &handlerLogger{}
+			successRequest := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+			successRequest.Header.Set("Content-Type", "application/json")
+			successRequest.Header.Set("X-Request-ID", "update-success")
+			successRequest = WithAuthenticatedUserID(successRequest, id)
+			successResponse := httptest.NewRecorder()
+			NewHandler(&handlerService{value: User{ID: id, DisplayName: "Alice"}}, successLogger).UpdateMe(successResponse, successRequest)
+			Expect(successResponse.Code).To(Equal(http.StatusOK))
+			Expect(successLogger.infoCalls).To(Equal(1))
+			Expect(successLogger.errorCalls).To(BeZero())
+
+			failedLogger := &handlerLogger{}
+			failedRequest := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
+			failedRequest.Header.Set("Content-Type", "application/json")
+			failedRequest = WithAuthenticatedUserID(failedRequest, id)
+			failedResponse := httptest.NewRecorder()
+			NewHandler(&handlerService{err: ErrValidation}, failedLogger).UpdateMe(failedResponse, failedRequest)
+			Expect(failedResponse.Code).To(Equal(http.StatusUnprocessableEntity))
+			Expect(failedLogger.errorCalls).To(Equal(1))
+			Expect(failedLogger.infoCalls).To(BeZero())
+		})
 	})
 })
 

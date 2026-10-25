@@ -54,9 +54,14 @@ resource "aws_lambda_function" "users" {
 
   environment {
     variables = {
-      APP_ENV     = var.environment
-      USERS_TABLE = aws_dynamodb_table.users.name
-      LOG_LEVEL   = "info"
+      APP_ENV                     = var.environment
+      JWT_KID                     = var.jwt_active_kid
+      JWT_ISSUER                  = var.jwt_issuer
+      JWT_AUDIENCE                = var.jwt_audience
+      JWT_ACCESS_SECRET_PARAMETER = aws_ssm_parameter.jwt_signing_key.name
+      USERS_TABLE                 = aws_dynamodb_table.users.name
+      UNIQUES_TABLE               = aws_dynamodb_table.uniques.name
+      LOG_LEVEL                   = "info"
     }
   }
 

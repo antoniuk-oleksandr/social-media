@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 
+	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	userfeature "github.com/antoniuk-oleksandr/social-media/internal/user"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -25,7 +26,7 @@ var _ = Describe("User feature constructors", func() {
 		Expect(service).NotTo(BeNil())
 		handler := NewHandler(service, nil)
 		Expect(handler).NotTo(BeNil())
-		var router http.Handler = NewRouter(handler)
+		var router http.Handler = NewRouter(handler, platformjwt.Access{})
 		Expect(router).NotTo(BeNil())
 		var _ userfeature.Repository = repository
 		var _ userfeature.Service = service

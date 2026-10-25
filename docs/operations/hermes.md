@@ -40,7 +40,15 @@ just auth-request POST /api/v1/auth/register \
 ```
 
 The SAM template is [`infra/local/template.yaml`](../../infra/local/template.yaml),
-and the local test environment is [`infra/local/env.json`](../../infra/local/env.json).
+and the non-secret base environment is [`infra/local/env.json`](../../infra/local/env.json).
+Local SAM invocations overlay values from the ignored `infra/local/.env` file.
+Create it from the example if needed:
+
+```bash
+cp infra/local/.env.example infra/local/.env
+```
+
+Keep real local signing keys in `.env`; never commit that file.
 
 ## Configure and run Hermes
 

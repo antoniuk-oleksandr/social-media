@@ -41,6 +41,24 @@ def remove_created_containers(before: set[str]) -> None:
         )
 
 
+def load_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if key:
+            values[key] = value
+    return values
+
+
 def main() -> int:
     if len(sys.argv) != 5:
         print(
@@ -76,8 +94,14 @@ def main() -> int:
     }
 
     function_name = "UsersFunction" if os.environ.get("SAM_FUNCTION") == "UsersFunction" else "AuthFunction"
+    env_path = Path(__file__).with_name(".env")
+    env_file = Path(__file__).with_name("env.json")
+    env_values = json.loads(env_file.read_text(encoding="utf-8"))
+    env_values.setdefault(function_name, {}).update(load_dotenv(env_path))
     event_path = Path(__file__).with_name(".invoke-event.json")
+    runtime_env_path = Path(__file__).with_name(".runtime-env.json")
     event_path.write_text(json.dumps(event), encoding="utf-8")
+    runtime_env_path.write_text(json.dumps(env_values), encoding="utf-8")
     containers_before = docker_container_ids()
     try:
         result = subprocess.run(
@@ -91,7 +115,7 @@ def main() -> int:
                 "--event",
                 str(event_path),
                 "--env-vars",
-                "infra/local/env.json",
+                str(runtime_env_path),
                 "--docker-network",
                 "social-media-local",
             ],
@@ -100,6 +124,7 @@ def main() -> int:
         return result.returncode
     finally:
         event_path.unlink(missing_ok=True)
+        runtime_env_path.unlink(missing_ok=True)
         remove_created_containers(containers_before)
 
 

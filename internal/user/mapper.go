@@ -2,6 +2,15 @@ package user
 
 import "time"
 
+type UpdateProfileRequest struct {
+	DisplayName *string `json:"displayName"`
+	Username    *string `json:"username"`
+}
+
+func ToUpdateProfileCommand(userID string, request UpdateProfileRequest) UpdateProfileCommand {
+	return UpdateProfileCommand{UserID: userID, Username: request.Username, DisplayName: request.DisplayName}
+}
+
 type ProfileResponse struct {
 	ID          string `json:"id"`
 	Username    string `json:"username"`

@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [dev]
   push:
-    branches: [dev]
+    branches: ["**"]
   workflow_dispatch:
 
 permissions:
@@ -47,28 +47,6 @@ jobs:
       - name: Run integration tests
         run: go test -race -tags=integration ./tests/integration/...
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Check Terraform formatting
-        run: terraform fmt -check -recursive infra/dev
-
-      - name: Initialize Terraform bootstrap for validation
-        working-directory: infra/dev/bootstrap
-        run: terraform init -backend=false
-
-      - name: Validate Terraform bootstrap
-        working-directory: infra/dev/bootstrap
-        run: terraform validate
-
-      - name: Initialize Terraform application for validation
-        working-directory: infra/dev
-        run: terraform init -backend=false
-
-      - name: Validate Terraform
-        working-directory: infra/dev
-        run: terraform validate
-
   deploy:
     name: Deploy with Terraform
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
@@ -108,6 +86,13 @@ jobs:
 
           test -n "$(terraform state list)"
 
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra/dev
+
+      - name: Validate Terraform
+        working-directory: infra/dev
+        run: terraform validate
+
       - name: Load signing key from SSM for Terraform
         working-directory: infra/dev
         shell: bash
@@ -123,15 +108,11 @@ jobs:
           echo "::add-mask::$signing_key"
           echo "TF_VAR_jwt_signing_key=$signing_key" >> "$GITHUB_ENV"
 
-      - name: Plan Lambda deployment
+      - name: Plan infrastructure deployment
         working-directory: infra/dev
         run: |
-          terraform plan \
-            -refresh=false \
-            -target=aws_lambda_function.auth \
-            -target=aws_lambda_function.users \
-            -out=../../build/terraform.tfplan
+          terraform plan -out=../../build/terraform.tfplan
 
-      - name: Apply Lambda deployment
+      - name: Apply infrastructure deployment
         working-directory: infra/dev
         run: terraform apply ../../build/terraform.tfplan

@@ -8,6 +8,8 @@ import (
 var (
 	ErrNotFound              = errors.New("user not found")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
+	ErrUsernameTaken         = errors.New("username already taken")
+	ErrValidation            = errors.New("invalid profile")
 )
 
 type Role string
@@ -23,4 +25,10 @@ type User struct {
 	Role                                           Role
 	Status                                         Status
 	CreatedAt                                      time.Time
+}
+
+type UpdateProfileCommand struct {
+	UserID      string
+	Username    *string
+	DisplayName *string
 }

@@ -12,9 +12,11 @@ import (
 )
 
 type getItemAPI struct {
-	output *dynamodb.GetItemOutput
-	err    error
-	input  *dynamodb.GetItemInput
+	output      *dynamodb.GetItemOutput
+	err         error
+	input       *dynamodb.GetItemInput
+	updateErr   error
+	updateInput *dynamodb.UpdateItemInput
 }
 
 func (f *getItemAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
@@ -22,13 +24,18 @@ func (f *getItemAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ 
 	return f.output, f.err
 }
 
+func (f *getItemAPI) UpdateItem(_ context.Context, input *dynamodb.UpdateItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	f.updateInput = input
+	return &dynamodb.UpdateItemOutput{}, f.updateErr
+}
+
 const repositoryTestID = "0192f8a0-7b00-7000-8000-000000000001"
 
 var _ = Describe("DynamoDB user repository", func() {
 	It("uses a String key and maps a complete UUIDv7 user record", func() {
 		client := dynamodb.New(dynamodb.Options{})
-		Expect(NewRepository(client, "users")).NotTo(BeNil())
-		Expect(NewConfiguredRepository(client, "users")).NotTo(BeNil())
+		Expect(NewRepository(client, "users", "uniques")).NotTo(BeNil())
+		Expect(NewConfiguredRepository(client, "users", "uniques")).NotTo(BeNil())
 		api := &getItemAPI{output: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
 			"userId": &types.AttributeValueMemberS{Value: repositoryTestID}, "username": &types.AttributeValueMemberS{Value: "alice"},
 			"email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "displayName": &types.AttributeValueMemberS{Value: "Alice"},
@@ -55,5 +62,21 @@ var _ = Describe("DynamoDB user repository", func() {
 		Expect(err).To(MatchError(user.ErrDependencyUnavailable))
 		_, err = (&Repository{Client: &getItemAPI{output: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{"userId": &types.AttributeValueMemberS{Value: repositoryTestID}, "createdAt": &types.AttributeValueMemberS{Value: "bad"}}}}, TableName: "users-test"}).GetByID(context.Background(), repositoryTestID)
 		Expect(err).To(MatchError(user.ErrDependencyUnavailable))
+	})
+
+	It("translates a non-conditional UpdateItem failure to a dependency error", func() {
+		api := &getItemAPI{
+			output: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
+				"userId": &types.AttributeValueMemberS{Value: repositoryTestID}, "username": &types.AttributeValueMemberS{Value: "alice"},
+				"createdAt": &types.AttributeValueMemberS{Value: "2026-10-24T12:00:00Z"},
+			}},
+			updateErr: errors.New("throttled"),
+		}
+		displayName := "Alice Updated"
+		_, err := (&Repository{Client: api, TableName: "users-test"}).UpdateProfile(context.Background(), user.UpdateProfileCommand{UserID: repositoryTestID, DisplayName: &displayName})
+
+		Expect(err).To(MatchError(user.ErrDependencyUnavailable))
+		Expect(api.updateInput).NotTo(BeNil())
+		Expect(*api.updateInput.ConditionExpression).To(Equal("attribute_exists(userId)"))
 	})
 })

@@ -23,3 +23,37 @@ var _ = Describe("LoadUsesConfiguredOrDefaultRegion", func() {
 
 	})
 })
+
+var _ = Describe("LoadUsersConfig", func() {
+	It("loads configured table names and preserves isolated defaults", func() {
+		previousUsers, usersSet := os.LookupEnv("USERS_TABLE")
+		previousUniques, uniquesSet := os.LookupEnv("UNIQUES_TABLE")
+		Expect(os.Setenv("USERS_TABLE", "configured-users")).To(Succeed())
+		Expect(os.Setenv("UNIQUES_TABLE", "configured-uniques")).To(Succeed())
+		DeferCleanup(func() {
+			if usersSet {
+				Expect(os.Setenv("USERS_TABLE", previousUsers)).To(Succeed())
+			} else {
+				Expect(os.Unsetenv("USERS_TABLE")).To(Succeed())
+			}
+			if uniquesSet {
+				Expect(os.Setenv("UNIQUES_TABLE", previousUniques)).To(Succeed())
+			} else {
+				Expect(os.Unsetenv("UNIQUES_TABLE")).To(Succeed())
+			}
+		})
+
+		Expect(LoadUsersConfig()).To(Equal(UsersConfig{UsersTable: "configured-users", UniquesTable: "configured-uniques"}))
+	})
+
+	It("uses separate local defaults when table environment is absent", func() {
+		Expect(os.Unsetenv("USERS_TABLE")).To(Succeed())
+		Expect(os.Unsetenv("UNIQUES_TABLE")).To(Succeed())
+		DeferCleanup(func() {
+			Expect(os.Unsetenv("USERS_TABLE")).To(Succeed())
+			Expect(os.Unsetenv("UNIQUES_TABLE")).To(Succeed())
+		})
+
+		Expect(LoadUsersConfig()).To(Equal(UsersConfig{UsersTable: "social-media-local-users", UniquesTable: "social-media-local-uniques"}))
+	})
+})
