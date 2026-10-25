@@ -178,6 +178,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "dynamodb:DeleteTable",
       "dynamodb:DescribeContinuousBackups",
       "dynamodb:DescribeTable",
+      "dynamodb:DescribeTimeToLive",
       "dynamodb:ListTagsOfResource",
       "dynamodb:TagResource",
       "dynamodb:UntagResource",
@@ -248,6 +249,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "s3:CreateBucket",
       "s3:DeleteBucket",
+      "s3:GetBucketAcl",
       "s3:GetBucketPolicy",
       "s3:GetBucketLocation",
       "s3:GetBucketOwnershipControls",
