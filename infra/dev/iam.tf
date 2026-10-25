@@ -159,6 +159,162 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
+    sid    = "ManageApiGateway"
+    effect = "Allow"
+    actions = [
+      "apigateway:DELETE",
+      "apigateway:GET",
+      "apigateway:PATCH",
+      "apigateway:POST"
+    ]
+    resources = ["arn:aws:apigateway:${var.aws_region}::/apis/*"]
+  }
+
+  statement {
+    sid    = "ManageDynamoDBTables"
+    effect = "Allow"
+    actions = [
+      "dynamodb:CreateTable",
+      "dynamodb:DeleteTable",
+      "dynamodb:DescribeTable",
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:TagResource",
+      "dynamodb:UntagResource",
+      "dynamodb:UpdateTable"
+    ]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.users_table}",
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.uniques_table}",
+      "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.refresh_table}"
+    ]
+  }
+
+  statement {
+    sid    = "ManageLambdaFunctions"
+    effect = "Allow"
+    actions = [
+      "lambda:AddPermission",
+      "lambda:CreateFunction",
+      "lambda:DeleteFunction",
+      "lambda:DeleteFunctionConcurrency",
+      "lambda:GetFunction",
+      "lambda:GetFunctionCodeSigningConfig",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetPolicy",
+      "lambda:ListTags",
+      "lambda:ListVersionsByFunction",
+      "lambda:PublishVersion",
+      "lambda:RemovePermission",
+      "lambda:TagResource",
+      "lambda:UntagResource",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration"
+    ]
+    resources = [
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.auth_function}",
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}"
+    ]
+  }
+
+  statement {
+    sid    = "ManageLambdaLogGroups"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:DeleteLogGroup",
+      "logs:DeleteRetentionPolicy",
+      "logs:ListTagsForResource",
+      "logs:PutRetentionPolicy",
+      "logs:TagResource",
+      "logs:UntagResource"
+    ]
+    resources = [
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.auth_function}",
+      "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.users_function}"
+    ]
+  }
+
+  statement {
+    sid       = "DescribeLambdaLogGroups"
+    effect    = "Allow"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ManageMediaBucket"
+    effect = "Allow"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:GetBucketLocation",
+      "s3:GetBucketOwnershipControls",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:GetBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:ListBucket",
+      "s3:PutBucketOwnershipControls",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketTagging",
+      "s3:PutBucketVersioning",
+      "s3:PutEncryptionConfiguration"
+    ]
+    resources = ["arn:aws:s3:::${local.media_bucket_name}"]
+  }
+
+  statement {
+    sid    = "ManageSigningKeyParameter"
+    effect = "Allow"
+    actions = [
+      "ssm:AddTagsToResource",
+      "ssm:DeleteParameter",
+      "ssm:GetParameter",
+      "ssm:ListTagsForResource",
+      "ssm:PutParameter",
+      "ssm:RemoveTagsFromResource"
+    ]
+    resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+
+  statement {
+    sid       = "DescribeSigningKeyParameters"
+    effect    = "Allow"
+    actions   = ["ssm:DescribeParameters"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ReadIamOidcProvider"
+    effect = "Allow"
+    actions = [
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ManageApplicationRoles"
+    effect = "Allow"
+    actions = [
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:DeleteRolePolicy",
+      "iam:GetRole",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:PutRolePolicy",
+      "iam:UpdateAssumeRolePolicy"
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.auth_function}-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.users_function}-execution",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.github_actions_role_name}"
+    ]
+  }
+
+  statement {
     sid    = "DeployAuthLambda"
     effect = "Allow"
     actions = [
