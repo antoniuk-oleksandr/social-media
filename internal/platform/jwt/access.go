@@ -36,6 +36,22 @@ type Access struct {
 }
 
 func (a Access) Authenticate(ctx context.Context, token string) (string, error) {
+	sub, _, err := a.authenticate(ctx, token)
+	return sub, err
+}
+
+func (a Access) AuthenticateAdmin(ctx context.Context, token string) (string, error) {
+	sub, role, err := a.authenticate(ctx, token)
+	if err != nil {
+		return "", err
+	}
+	if role != "admin" {
+		return "", fmt.Errorf("forbidden: administrator role required")
+	}
+	return sub, nil
+}
+
+func (a Access) authenticate(ctx context.Context, token string) (string, string, error) {
 	parsed, err := jwt.Parse(token, func(value *jwt.Token) (any, error) {
 		if value.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("invalid signing method")
@@ -47,30 +63,30 @@ func (a Access) Authenticate(ctx context.Context, token string) (string, error) 
 		return a.Keys.Key(ctx, kid)
 	}, jwt.WithIssuer(a.Issuer), jwt.WithAudience(a.Audience), jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil || parsed == nil || !parsed.Valid {
-		return "", fmt.Errorf("invalid access token")
+		return "", "", fmt.Errorf("invalid access token")
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("invalid access claims")
+		return "", "", fmt.Errorf("invalid access claims")
 	}
 	role, ok := claims["role"].(string)
 	if !ok || (role != string(user.RoleUser) && role != "admin") {
-		return "", fmt.Errorf("invalid access role")
+		return "", "", fmt.Errorf("invalid access role")
 	}
 	for _, name := range []string{"iat", "nbf", "exp"} {
 		if !numericClaim(claims[name]) {
-			return "", fmt.Errorf("invalid access %s", name)
+			return "", "", fmt.Errorf("invalid access %s", name)
 		}
 	}
 	jti, ok := claims["jti"].(string)
 	if !ok || !platformid.IsCanonicalUUIDv7(jti) {
-		return "", fmt.Errorf("invalid access jti")
+		return "", "", fmt.Errorf("invalid access jti")
 	}
 	sub, ok := claims["sub"].(string)
 	if !ok || !platformid.IsCanonicalUUIDv7(sub) {
-		return "", fmt.Errorf("invalid access subject")
+		return "", "", fmt.Errorf("invalid access subject")
 	}
-	return sub, nil
+	return sub, role, nil
 }
 
 func numericClaim(value any) bool {
