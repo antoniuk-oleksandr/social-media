@@ -11,6 +11,8 @@ import (
 
 var (
 	ErrValidation            = errors.New("invalid post content")
+	ErrInvalidID             = errors.New("invalid post id")
+	ErrNotFound              = errors.New("post not found")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
 )
 
@@ -29,6 +31,7 @@ type CreateCommand struct {
 
 type Repository interface {
 	Create(context.Context, Post) error
+	GetByID(context.Context, string) (Post, error)
 }
 
 type IDGenerator interface {
@@ -39,7 +42,7 @@ type Clock interface {
 	Now() time.Time
 }
 
-func normalizeContent(content string) (string, error) {
+func NormalizeContent(content string) (string, error) {
 	content = strings.TrimSpace(content)
 	count := len([]rune(content))
 	if count < 1 || count > 500 {

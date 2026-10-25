@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type TokenAuthenticator interface {
@@ -12,7 +14,8 @@ type TokenAuthenticator interface {
 }
 
 func NewRouter(handler *Handler, authenticator TokenAuthenticator) http.Handler {
-	router := http.NewServeMux()
+	router := chi.NewRouter()
+	router.Get("/api/v1/posts/{postId}", handler.GetByID)
 	router.HandleFunc("POST /api/v1/posts", func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now()
 		const prefix = "Bearer "
