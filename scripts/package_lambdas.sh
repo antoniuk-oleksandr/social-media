@@ -19,3 +19,4 @@ for command_dir in cmd/*; do
 done
 
 test -s build/auth-lambda.zip
+test -s build/users-lambda.zip
