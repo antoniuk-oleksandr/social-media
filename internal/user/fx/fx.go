@@ -3,7 +3,10 @@ package fx
 import (
 	"net/http"
 
+	platformclock "github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
+	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
+	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	userfeature "github.com/antoniuk-oleksandr/social-media/internal/user"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
@@ -11,7 +14,11 @@ import (
 )
 
 func NewRepository(client *dynamodb.Client) userfeature.Repository {
-	return userdb.NewConfiguredRepository(client, fx.Value("USERS_TABLE", "social-media-local-users"))
+	return userdb.NewConfiguredRepository(client, fx.Value("USERS_TABLE", "social-media-local-users"), fx.Value("UNIQUES_TABLE", "social-media-local-uniques"))
+}
+
+func NewConfiguredRepository(client *dynamodb.Client, cfg platformconfig.UsersConfig, clk platformclock.Real) userfeature.Repository {
+	return userdb.NewConfiguredRepositoryWithClock(client, cfg.UsersTable, cfg.UniquesTable, clk)
 }
 
 func NewService(repository userfeature.Repository) userfeature.Service {
@@ -22,6 +29,6 @@ func NewHandler(service userfeature.Service, logger logging.Logger) *userfeature
 	return userfeature.NewHandler(service, logger)
 }
 
-func NewRouter(handler *userfeature.Handler) http.Handler {
-	return userfeature.NewRouter(handler)
+func NewRouter(handler *userfeature.Handler, access platformjwt.Access) http.Handler {
+	return userfeature.NewRouter(handler, access)
 }

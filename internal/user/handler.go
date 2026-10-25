@@ -1,13 +1,16 @@
 package user
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	"github.com/antoniuk-oleksandr/social-media/internal/shared/httpjson"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -63,6 +66,70 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusOK, ToProfileResponse(value))
 }
 
+type principalKey struct{}
+
+func WithAuthenticatedUserID(r *http.Request, id string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), principalKey{}, id))
+}
+
+func authenticatedUserID(r *http.Request) (string, bool) {
+	id, ok := r.Context().Value(principalKey{}).(string)
+	return id, ok && id != ""
+}
+
+func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusOK
+	var requestErr error
+	var userID *string
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logUpdateRequest(rid, status, requestErr, userID, time.Since(startedAt))
+	}()
+
+	authenticatedID, ok := authenticatedUserID(r)
+	if !ok {
+		writeError(loggedWriter, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required", rid)
+		return
+	}
+	userID = &authenticatedID
+	if r.Header.Get("Content-Type") != "application/json" {
+		writeError(loggedWriter, http.StatusBadRequest, "INVALID_JSON", "Content-Type must be application/json", rid)
+		return
+	}
+	var request UpdateProfileRequest
+	if err := httpjson.Decode(r, &request); err != nil {
+		status, code, message := http.StatusBadRequest, "INVALID_JSON", "Invalid JSON"
+		if errors.Is(err, httpjson.ErrPayloadTooLarge) {
+			status, code, message = http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Request body is too large"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	value, err := h.service.UpdateProfile(r.Context(), ToUpdateProfileCommand(authenticatedID, request))
+	if err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrValidation), errors.Is(err, ErrInvalidID):
+			status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid profile fields"
+		case errors.Is(err, ErrUsernameTaken):
+			status, code, message = http.StatusConflict, "USERNAME_TAKEN", "Username is already registered"
+		case errors.Is(err, ErrNotFound):
+			status, code, message = http.StatusNotFound, "NOT_FOUND", "User not found"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	writeJSON(loggedWriter, http.StatusOK, ToProfileResponse(value))
+}
+
 type responseWriter struct {
 	http.ResponseWriter
 	status int
@@ -88,6 +155,31 @@ func (h *Handler) logRequest(requestID string, status int, requestErr error, use
 		logging.String("request_id", requestID),
 		logging.String("route", "GET /api/v1/users/{userId}"),
 		logging.String("status", fmt.Sprint(status)),
+		logging.String("duration", duration.String()),
+	}
+	if userID != nil {
+		fields = append(fields, logging.String("user_id", *userID))
+	}
+	if requestErr != nil {
+		fields = append(fields, logging.Error(requestErr))
+		if err := h.logger.Error("user request failed", fields...); err != nil {
+			return
+		}
+		return
+	}
+	if err := h.logger.Info("user request completed", fields...); err != nil {
+		return
+	}
+}
+
+func (h *Handler) logUpdateRequest(requestID string, status int, requestErr error, userID *string, duration time.Duration) {
+	if h.logger == nil {
+		return
+	}
+	fields := []logging.Field{
+		logging.String("request_id", requestID),
+		logging.String("route", "PATCH /api/v1/users/me"),
+		logging.String("status", strconv.Itoa(status)),
 		logging.String("duration", duration.String()),
 	}
 	if userID != nil {

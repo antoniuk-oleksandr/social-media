@@ -20,9 +20,12 @@ func main() {
 	app := fx.New(
 		fx.Provide(
 			platformconfig.Load,
+			platformconfig.LoadUsersConfig,
 			platformfx.NewDynamoDBClient,
+			platformfx.NewClock,
 			platformlogging.New,
-			userfx.NewRepository,
+			platformfx.NewConfiguredAccessTokenIssuer,
+			userfx.NewConfiguredRepository,
 			userfx.NewService,
 			userfx.NewHandler,
 			userfx.NewRouter,

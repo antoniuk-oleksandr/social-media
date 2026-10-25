@@ -132,3 +132,59 @@ var _ = Describe("AccessIssueValidatesUserIDBeforeSigning", func() {
 		Expect(token).NotTo(BeEmpty())
 	})
 })
+
+var _ = Describe("AccessAuthenticate", func() {
+	const (
+		userID = "0192f8a0-7b00-7000-8000-000000000001"
+		jti    = "0192f8a0-7b00-7000-8000-000000000002"
+	)
+
+	newAccess := func() Access {
+		return Access{Keys: StaticKey{KID: "key", Secret: []byte("secret")}, KID: "key", Issuer: "issuer", Audience: "audience"}
+	}
+
+	It("authenticates an issued user token and returns its canonical subject", func() {
+		access := newAccess()
+		token, err := access.Issue(context.Background(), user.User{ID: userID, Role: user.RoleUser}, time.Now())
+		Expect(err).NotTo(HaveOccurred())
+
+		got, err := access.Authenticate(context.Background(), token)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(Equal(userID))
+	})
+
+	DescribeTable("rejects tokens that violate required access-token claims", func(mutator func(gjwt.MapClaims, *gjwt.Token)) {
+		access := newAccess()
+		claims := gjwt.MapClaims{
+			"iss": "issuer", "sub": userID, "aud": "audience", "role": string(user.RoleUser),
+			"iat": float64(time.Now().Unix()), "nbf": float64(time.Now().Unix()), "exp": float64(time.Now().Add(time.Minute).Unix()), "jti": jti,
+		}
+		token := gjwt.NewWithClaims(gjwt.SigningMethodHS256, claims)
+		token.Header["kid"] = "key"
+		mutator(claims, token)
+		serialized, err := token.SignedString([]byte("secret"))
+		Expect(err).NotTo(HaveOccurred())
+
+		_, err = access.Authenticate(context.Background(), serialized)
+		Expect(err).To(HaveOccurred())
+	},
+		Entry("wrong issuer", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["iss"] = "other" }),
+		Entry("wrong audience", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["aud"] = "other" }),
+		Entry("invalid role", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["role"] = "moderator" }),
+		Entry("missing issued-at", func(claims gjwt.MapClaims, _ *gjwt.Token) { delete(claims, "iat") }),
+		Entry("invalid not-before type", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["nbf"] = "now" }),
+		Entry("invalid JWT ID", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["jti"] = "not-a-uuid" }),
+		Entry("invalid subject", func(claims gjwt.MapClaims, _ *gjwt.Token) { claims["sub"] = "not-a-uuid" }),
+		Entry("unknown key ID", func(_ gjwt.MapClaims, token *gjwt.Token) { token.Header["kid"] = "unknown" }),
+		Entry("missing key ID", func(_ gjwt.MapClaims, token *gjwt.Token) { delete(token.Header, "kid") }),
+	)
+
+	It("rejects an unsupported signing method", func() {
+		access := newAccess()
+		token := gjwt.NewWithClaims(gjwt.SigningMethodHS512, gjwt.MapClaims{"iss": "issuer"})
+		serialized, err := token.SignedString([]byte("secret"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = access.Authenticate(context.Background(), serialized)
+		Expect(err).To(MatchError("invalid access token"))
+	})
+})
