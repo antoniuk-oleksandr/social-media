@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -74,6 +75,7 @@ def main() -> int:
         "isBase64Encoded": False,
     }
 
+    function_name = "UsersFunction" if os.environ.get("SAM_FUNCTION") == "UsersFunction" else "AuthFunction"
     event_path = Path(__file__).with_name(".invoke-event.json")
     event_path.write_text(json.dumps(event), encoding="utf-8")
     containers_before = docker_container_ids()
@@ -83,7 +85,7 @@ def main() -> int:
                 "sam",
                 "local",
                 "invoke",
-                "AuthFunction",
+                function_name,
                 "--template-file",
                 "infra/local/template.yaml",
                 "--event",

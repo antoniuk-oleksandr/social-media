@@ -7,8 +7,7 @@
 - Base path: /api/v1
 - Content type: application/json
 - Protected requests use Authorization: Bearer <access-jwt>.
-- IDs are opaque strings. Timestamps use ISO 8601 UTC.
-- Resource IDs must be valid UUIDv7 values; shortened IDs in examples are illustrative only.
+- Resource IDs are canonical UUIDv7 strings. Timestamps use ISO 8601 UTC.
 - 401 means missing or invalid authentication. 403 means insufficient role.
 
 Common error response:
@@ -46,7 +45,7 @@ Response: 201 Created
 
     {
       "user": {
-        "id": "usr_123",
+        "id": "0192c5f4-7b2a-7abc-8def-1234567890ab",
         "username": "alice",
         "email": "alice@example.com",
         "displayName": "Alice",
@@ -77,7 +76,7 @@ Response: 200 OK
 
     {
       "user": {
-        "id": "usr_123",
+        "id": "0192c5f4-7b2a-7abc-8def-1234567890ab",
         "username": "alice",
         "displayName": "Alice",
         "role": "user"
@@ -126,7 +125,7 @@ Authentication: optional
 Response: 200 OK
 
     {
-      "id": "usr_123",
+      "id": "0192c5f4-7b2a-7abc-8def-1234567890ab",
       "username": "alice",
       "displayName": "Alice",
       "role": "user",
@@ -165,8 +164,8 @@ Request:
 Response: 201 Created
 
     {
-      "id": "pst_123",
-      "authorId": "usr_123",
+      "id": "0192c5f4-7b2a-7abd-8def-1234567890ab",
+      "authorId": "0192c5f4-7b2a-7abc-8def-1234567890ab",
       "content": "Hello from the MVP!",
       "createdAt": "2026-10-18T12:35:00Z"
     }
@@ -225,7 +224,7 @@ Request:
 Response: 201 Created
 
     {
-      "id": "ad_123",
+      "id": "0192c5f4-7b2a-7abe-8def-1234567890ab",
       "type": "ad",
       "advertiser": "Example Company",
       "content": "Try our new product!",
@@ -301,9 +300,9 @@ Response: 200 OK
         {
           "type": "post",
           "data": {
-            "id": "pst_020",
+            "id": "0192c5f4-7b2a-7abf-8def-1234567890ab",
             "author": {
-              "id": "usr_123",
+              "id": "0192c5f4-7b2a-7abc-8def-1234567890ab",
               "username": "alice",
               "displayName": "Alice"
             },
@@ -314,7 +313,7 @@ Response: 200 OK
         {
           "type": "ad",
           "data": {
-            "id": "ad_001",
+            "id": "0192c5f4-7b2a-7abe-8def-1234567890ab",
             "advertiser": "Example Company",
             "content": "Try our new product!",
             "targetUrl": "https://example.com",
@@ -393,7 +392,7 @@ Request:
 
     {
       "targetType": "post",
-      "targetId": "pst_123",
+      "targetId": "0192c5f4-7b2a-7abd-8def-1234567890ab",
       "reason": "spam",
       "details": "Repeated promotional content"
     }
@@ -427,7 +426,7 @@ Request:
 Response: 201 Created
 
     {
-      "attachmentId": "att_123",
+      "attachmentId": "0192c5f4-7b2a-7ac0-8def-1234567890ab",
       "uploadUrl": "https://s3.example/...",
       "expiresAt": "2026-10-18T14:00:00Z",
       "status": "pending"
@@ -446,7 +445,7 @@ Request:
 Response: 202 Accepted
 
     {
-      "attachmentId": "att_123",
+      "attachmentId": "0192c5f4-7b2a-7ac0-8def-1234567890ab",
       "status": "processing"
     }
 
@@ -459,7 +458,7 @@ Response: 200 OK
     {
       "items": [
         {
-          "attachmentId": "att_123",
+          "attachmentId": "0192c5f4-7b2a-7ac0-8def-1234567890ab",
           "mediaType": "image",
           "contentType": "image/jpeg",
           "status": "ready",
@@ -481,9 +480,9 @@ Request:
 Response: 200 OK
 
     {
-      "userId": "usr_123",
+      "userId": "0192c5f4-7b2a-7abc-8def-1234567890ab",
       "avatar": {
-        "attachmentId": "att_456",
+        "attachmentId": "0192c5f4-7b2a-7ac1-8def-1234567890ab",
         "mediaType": "image",
         "status": "ready",
         "url": "https://cdn.example/avatar.jpg"
@@ -524,14 +523,14 @@ Post:
 
     {
       "content": "A trip video",
-      "attachmentIds": ["att_123"]
+      "attachmentIds": ["0192c5f4-7b2a-7ac0-8def-1234567890ab"]
     }
 
 Comment:
 
     {
       "content": "Here is a photo",
-      "attachmentIds": ["att_456"],
+      "attachmentIds": ["0192c5f4-7b2a-7ac1-8def-1234567890ab"],
       "parentCommentId": null
     }
 

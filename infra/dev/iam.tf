@@ -58,6 +58,32 @@ resource "aws_iam_role_policy" "auth_lambda" {
   policy = data.aws_iam_policy_document.auth_lambda.json
 }
 
+resource "aws_iam_role" "users_lambda" {
+  name               = "${local.users_function}-execution"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "users_lambda" {
+  statement {
+    sid       = "WriteApplicationLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.users.arn}:*"]
+  }
+  statement {
+    sid       = "ReadUsers"
+    effect    = "Allow"
+    actions   = ["dynamodb:DescribeTable", "dynamodb:GetItem"]
+    resources = [aws_dynamodb_table.users.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "users_lambda" {
+  name   = "${local.users_function}-execution"
+  role   = aws_iam_role.users_lambda.id
+  policy = data.aws_iam_policy_document.users_lambda.json
+}
+
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
@@ -131,10 +157,39 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
+    sid    = "DeployUsersLambda"
+    effect = "Allow"
+    actions = [
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetFunctionCodeSigningConfig",
+      "lambda:ListVersionsByFunction",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration"
+    ]
+    resources = [
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.users_function}"
+    ]
+  }
+
+  statement {
     sid       = "PassAuthLambdaRole"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
     resources = [aws_iam_role.auth_lambda.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["lambda.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "PassUsersLambdaRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.users_lambda.arn]
 
     condition {
       test     = "StringEquals"

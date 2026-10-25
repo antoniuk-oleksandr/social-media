@@ -33,3 +33,32 @@ resource "aws_lambda_function" "auth" {
 
   depends_on = [aws_iam_role_policy.auth_lambda]
 }
+
+resource "aws_cloudwatch_log_group" "users" {
+  name              = "/aws/lambda/${local.users_function}"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_lambda_function" "users" {
+  function_name = local.users_function
+  role          = aws_iam_role.users_lambda.arn
+  runtime       = var.lambda_runtime
+  architectures = [var.lambda_architecture]
+  handler       = "bootstrap"
+
+  filename         = var.users_lambda_package_path
+  source_code_hash = filebase64sha256(var.users_lambda_package_path)
+
+  memory_size = var.lambda_memory_mb
+  timeout     = var.lambda_timeout_seconds
+
+  environment {
+    variables = {
+      APP_ENV     = var.environment
+      USERS_TABLE = aws_dynamodb_table.users.name
+      LOG_LEVEL   = "info"
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.users_lambda]
+}

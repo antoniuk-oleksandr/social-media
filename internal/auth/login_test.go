@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -38,7 +39,7 @@ func (v loginVerifier) Compare(string, string) error { return v.err }
 
 type loginIDs struct{}
 
-func (loginIDs) New() (string, error) { return "session-id", nil }
+func (loginIDs) New() (string, error) { return "0192f8a0-7b00-7000-8000-000000000002", nil }
 
 type loginClock struct{}
 
@@ -78,13 +79,14 @@ func newLoginService(store *loginStore, verifierErr error) *auth.Service {
 var _ = Describe("LoginService", func() {
 	It("accepts username and email and creates a session", func() {
 		for _, login := range []string{"alice", "ALICE@EXAMPLE.COM"} {
-			store := &loginStore{user: user.User{ID: "user-id", Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive}}
+			store := &loginStore{user: user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive}}
 			got, err := newLoginService(store, nil).Login(context.Background(), auth.LoginCommand{Login: login, Password: "correct-password"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got.User.Email).To(Equal("alice@example.com"))
 			Expect(got.Tokens.ExpiresIn).To(Equal(int64(900)))
 			Expect(got.Tokens.RefreshExpiresIn).To(Equal(int64(604800)))
-			Expect(store.session.UserID).To(Equal("user-id"))
+			Expect(platformid.IsCanonicalUUIDv7(store.session.SessionID)).To(BeTrue())
+			Expect(store.session.UserID).To(Equal("0192f8a0-7b00-7000-8000-000000000001"))
 			Expect(store.session.TokenHash).To(Equal("hashed-refresh"))
 		}
 	})
@@ -120,7 +122,7 @@ var _ = Describe("LoginService", func() {
 
 var _ = Describe("LoginHandler", func() {
 	It("returns a user-safe response", func() {
-		result := auth.RegisterResult{User: user.User{ID: "user-id", Username: "alice", Email: "secret@example.com", DisplayName: "Alice", Role: user.RoleUser}, Tokens: auth.TokenPair{AccessToken: "access", RefreshToken: "refresh", ExpiresIn: 900, RefreshExpiresIn: 604800}}
+		result := auth.RegisterResult{User: user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", Username: "alice", Email: "secret@example.com", DisplayName: "Alice", Role: user.RoleUser}, Tokens: auth.TokenPair{AccessToken: "access", RefreshToken: "refresh", ExpiresIn: 900, RefreshExpiresIn: 604800}}
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice@example.com","password":"correct-password"}`))
 		r.Header.Set("Content-Type", "application/json")

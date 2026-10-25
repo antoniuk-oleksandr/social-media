@@ -84,10 +84,14 @@ func runDynamoDB(ctx context.Context) (container *tcdynamodb.DynamoDBContainer, 
 }
 
 func CreateTable(ctx context.Context, client *dynamodb.Client, tableName, hashKey string) error {
+	return createUserTable(ctx, client, tableName, hashKey, types.ScalarAttributeTypeS)
+}
+
+func createUserTable(ctx context.Context, client *dynamodb.Client, tableName, hashKey string, keyType types.ScalarAttributeType) error {
 	input := &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{{
-			AttributeName: aws.String(hashKey), AttributeType: types.ScalarAttributeTypeS,
+			AttributeName: aws.String(hashKey), AttributeType: keyType,
 		}},
 		KeySchema: []types.KeySchemaElement{{
 			AttributeName: aws.String(hashKey), KeyType: types.KeyTypeHash,

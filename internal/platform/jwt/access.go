@@ -3,6 +3,9 @@ package jwt
 import (
 	"context"
 	"fmt"
+
+	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/golang-jwt/jwt/v5"
 	"time"
@@ -39,13 +42,26 @@ func (a Access) Issue(ctx context.Context, u user.User, now time.Time) (string, 
 		a.Now = time.Now
 	}
 	if a.ID == nil {
-		a.ID = func() string { return fmt.Sprintf("%d", a.Now().UnixNano()) }
+		a.ID = func() string {
+			id, err := (platformid.UUIDv7{}).New()
+			if err != nil {
+				return ""
+			}
+			return id
+		}
+	}
+	jti := a.ID()
+	if !platformid.IsCanonicalUUIDv7(jti) {
+		return "", fmt.Errorf("invalid JWT ID")
+	}
+	if !platformid.IsCanonicalUUIDv7(u.ID) {
+		return "", fmt.Errorf("%w: invalid user ID", auth.ErrValidation)
 	}
 	key, e := a.Keys.Key(ctx, a.KID)
 	if e != nil {
 		return "", e
 	}
-	claims := jwt.MapClaims{"iss": a.Issuer, "sub": u.ID, "aud": a.Audience, "role": string(u.Role), "iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(a.TTL).Unix(), "jti": a.ID()}
+	claims := jwt.MapClaims{"iss": a.Issuer, "sub": u.ID, "aud": a.Audience, "role": string(u.Role), "iat": now.Unix(), "nbf": now.Unix(), "exp": now.Add(a.TTL).Unix(), "jti": jti}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	t.Header["kid"] = a.KID
 	t.Header["typ"] = "JWT"

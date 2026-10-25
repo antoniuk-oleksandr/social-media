@@ -129,6 +129,7 @@ jobs:
           terraform plan \
             -refresh=false \
             -target=aws_lambda_function.auth \
+            -target=aws_lambda_function.users \
             -out=../../build/terraform.tfplan
 
       - name: Apply Lambda deployment

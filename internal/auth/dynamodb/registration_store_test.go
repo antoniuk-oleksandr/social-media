@@ -6,13 +6,13 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -20,20 +20,14 @@ import (
 	"github.com/aws/smithy-go"
 )
 
-type testNetworkError struct{}
-
-func (testNetworkError) Error() string   { return "network" }
-func (testNetworkError) Timeout() bool   { return true }
-func (testNetworkError) Temporary() bool { return true }
-
-var _ net.Error = testNetworkError{}
-
 type fakeAPI struct {
 	transactionErr error
 	transactionIn  *dynamodb.TransactWriteItemsInput
 	transactionN   int
 	getErr         error
 	items          map[string]map[string]types.AttributeValue
+	queryErr       error
+	queryOut       *dynamodb.QueryOutput
 	mu             sync.Mutex
 }
 
@@ -61,15 +55,19 @@ func (f *fakeAPI) GetItem(_ context.Context, in *dynamodb.GetItemInput, _ ...fun
 }
 
 func registration() auth.Registration {
-	return auth.Registration{User: user.User{ID: "new-user", Username: "alice", Email: "alice@example.com", PasswordHash: "hash", Role: user.RoleUser, Status: user.StatusActive}, Refresh: auth.RefreshSession{TokenHash: "refresh-hash", SessionID: "session", UserID: "new-user"}}
+	id := "0192f8a0-7b00-7000-8000-000000000001"
+	now := time.Unix(100, 0).UTC()
+	return auth.Registration{User: user.User{ID: id, Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive, CreatedAt: now}, Refresh: auth.RefreshSession{TokenHash: "refresh-hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: id, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}}
 }
 
-func canceled(codes ...string) error {
-	reasons := make([]types.CancellationReason, len(codes))
-	for i, code := range codes {
-		reasons[i] = types.CancellationReason{Code: aws.String(code)}
+func (f *fakeAPI) Query(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	if f.queryErr != nil {
+		return nil, f.queryErr
 	}
-	return &types.TransactionCanceledException{CancellationReasons: reasons}
+	if f.queryOut != nil {
+		return f.queryOut, nil
+	}
+	return &dynamodb.QueryOutput{}, nil
 }
 
 var _ = Describe("RegisterMapsEmailCancellationReason", func() {
@@ -205,7 +203,8 @@ var _ = Describe("RegisterBuildsCompleteTransactionPayload", func() {
 		created := time.Unix(1_700_000_000, 0).UTC()
 		expires := created.Add(7 * 24 * time.Hour)
 		r := registration()
-		r.User.CreatedAt = created
+		Expect(platformid.IsCanonicalUUIDv7(r.User.ID)).To(BeTrue())
+		Expect(platformid.IsCanonicalUUIDv7(r.Refresh.UserID)).To(BeTrue())
 		r.Refresh.CreatedAt = created
 		r.Refresh.ExpiresAt = expires
 		api := &fakeAPI{}
@@ -258,6 +257,7 @@ var _ = Describe("RegisterBuildsCompleteTransactionPayload", func() {
 		}
 
 		refreshPut := in.TransactItems[3].Put
+		Expect(platformid.IsCanonicalUUIDv7(refreshPut.Item["userId"].(*types.AttributeValueMemberS).Value)).To(BeTrue())
 		if refreshPut == nil || aws.ToString(refreshPut.TableName) != "refresh-table" {
 			Expect(false).To(BeTrue(), fmt.Sprintf("refresh item table=%v, want refresh-table", refreshPut))
 		}
@@ -368,32 +368,49 @@ var _ = Describe("FindByID", func() {
 	It("maps a stored user and uses a strongly consistent lookup", func() {
 		created := time.Unix(100, 0).UTC()
 		api := &fakeAPI{items: map[string]map[string]types.AttributeValue{
-			"user-1": {
-				"userId": &types.AttributeValueMemberS{Value: "user-1"}, "username": &types.AttributeValueMemberS{Value: "alice"},
+			"0192f8a0-7b00-7000-8000-000000000002": {
+				"userId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000002"}, "username": &types.AttributeValueMemberS{Value: "alice"},
 				"email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"},
 				"displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"},
 				"status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
 			},
 		}}
-		got, err := (Store{Client: api, UsersTable: "users"}).FindByID(context.Background(), "user-1")
+		got, err := (Store{Client: api, UsersTable: "users"}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000002")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.ID).To(Equal("user-1"))
+		Expect(got.ID).To(Equal("0192f8a0-7b00-7000-8000-000000000002"))
 		Expect(got.CreatedAt).To(Equal(created))
 	})
 
 	It("maps missing, dependency, and malformed records", func() {
 		missing := &fakeAPI{items: map[string]map[string]types.AttributeValue{}}
-		_, err := (Store{Client: missing}).FindByID(context.Background(), "missing")
+		_, err := (Store{Client: missing}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000099")
 		Expect(err).To(MatchError(user.ErrNotFound))
 
 		dependency := &fakeAPI{getErr: testNetworkError{}}
-		_, err = (Store{Client: dependency}).FindByID(context.Background(), "user")
+		_, err = (Store{Client: dependency}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000003")
 		Expect(errors.Is(err, auth.ErrDependencyUnavailable)).To(BeTrue())
 
 		malformed := &fakeAPI{items: map[string]map[string]types.AttributeValue{
-			"user": {"createdAt": &types.AttributeValueMemberS{Value: "not-a-time"}},
+			"0192f8a0-7b00-7000-8000-000000000003": {"createdAt": &types.AttributeValueMemberS{Value: "not-a-time"}},
 		}}
-		_, err = (Store{Client: malformed}).FindByID(context.Background(), "user")
-		Expect(err).To(MatchError(ContainSubstring("decode user")))
+		_, err = (Store{Client: malformed}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000003")
+		Expect(err).To(MatchError(user.ErrDependencyUnavailable))
+	})
+})
+
+var _ = Describe("RegisterRejectsInvalidPersistenceIDs", func() {
+	It("rejects invalid user or session IDs before starting a transaction", func() {
+		for _, mutate := range []func(*auth.Registration){
+			func(r *auth.Registration) { r.User.ID = "numeric-user" },
+			func(r *auth.Registration) { r.Refresh.SessionID = "numeric-session" },
+			func(r *auth.Registration) { r.Refresh.UserID = "numeric-user" },
+		} {
+			api := &fakeAPI{}
+			r := registration()
+			mutate(&r)
+			err := (Store{Client: api}).Register(context.Background(), r)
+			Expect(errors.Is(err, auth.ErrValidation)).To(BeTrue())
+			Expect(api.transactionN).To(Equal(0))
+		}
 	})
 })

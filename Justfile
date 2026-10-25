@@ -17,6 +17,10 @@ auth-build:
     mkdir -p build/auth
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/auth/bootstrap ./cmd/auth
 
+users-build:
+    mkdir -p build/users
+    AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/users/bootstrap ./cmd/users
+
 lambda-package:
     bash scripts/package_lambdas.sh
 
@@ -24,6 +28,9 @@ build: lambda-package
 
 auth-request method path body headers='{"content-type":"application/json"}': local-up local-init auth-build
     python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
+
+users-request method path body='' headers='{"content-type":"application/json"}': local-up local-init users-build
+    SAM_FUNCTION=UsersFunction python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
 
 terraform-bootstrap-dev:
     set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap init -input=false

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformid "github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -54,12 +55,13 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 			{login: "alice@example.com", index: "EmailIndex", field: "email"},
 		} {
 			api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{
-				"userId": &types.AttributeValueMemberS{Value: "user-id"}, "username": &types.AttributeValueMemberS{Value: "alice"}, "email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"}, "displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
+				"userId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000001"}, "username": &types.AttributeValueMemberS{Value: "alice"}, "email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"}, "displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
 			}}}}
 			store := Store{Client: api, UsersTable: "users"}
 			got, err := store.FindByLogin(context.Background(), tc.login)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(got.ID).To(Equal("user-id"))
+			Expect(got.ID).To(Equal("0192f8a0-7b00-7000-8000-000000000001"))
+			Expect(platformid.IsCanonicalUUIDv7(got.ID)).To(BeTrue())
 			Expect(got.CreatedAt).To(Equal(created))
 			Expect(aws.ToString(api.queryIn.IndexName)).To(Equal(tc.index))
 			Expect(api.queryIn.ExpressionAttributeNames["#login"]).To(Equal(tc.field))
@@ -71,14 +73,14 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 	It("uses the first page deterministically when DynamoDB reports more results", func() {
 		api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{
 			Items: []map[string]types.AttributeValue{{
-				"userId":    &types.AttributeValueMemberS{Value: "first"},
+				"userId":    &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000002"},
 				"createdAt": &types.AttributeValueMemberS{Value: time.Unix(100, 0).UTC().Format(time.RFC3339)},
 			}},
 			LastEvaluatedKey: map[string]types.AttributeValue{"email": &types.AttributeValueMemberS{Value: "next"}},
 		}}
 		got, err := (Store{Client: api}).FindByLogin(context.Background(), "a@example.com")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.ID).To(Equal("first"))
+		Expect(got.ID).To(Equal("0192f8a0-7b00-7000-8000-000000000002"))
 		Expect(aws.ToInt32(api.queryIn.Limit)).To(Equal(int32(1)))
 	})
 })
@@ -112,7 +114,7 @@ var _ = Describe("LoginStoreAttributeMapping", func() {
 			"createdAt": &types.AttributeValueMemberS{Value: time.Unix(100, 0).UTC().Format(time.RFC3339)},
 		}}}}
 		got, err := (Store{Client: api}).FindByLogin(context.Background(), "alice")
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(MatchError(auth.ErrDependencyUnavailable))
 		Expect(got.ID).To(BeEmpty())
 	})
 })
@@ -123,7 +125,8 @@ var _ = Describe("LoginStoreCreateLoginSession", func() {
 		expires := created.Add(7 * 24 * time.Hour)
 		api := &loginStoreAPI{}
 		store := Store{Client: api, RefreshTable: "refresh"}
-		Expect(store.CreateLoginSession(context.Background(), auth.RefreshSession{TokenHash: "hash", SessionID: "session", UserID: "user", CreatedAt: created, ExpiresAt: expires})).To(Succeed())
+		Expect(store.CreateLoginSession(context.Background(), auth.RefreshSession{TokenHash: "hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: "0192f8a0-7b00-7000-8000-000000000001", CreatedAt: created, ExpiresAt: expires})).To(Succeed())
+		Expect(platformid.IsCanonicalUUIDv7("0192f8a0-7b00-7000-8000-000000000001")).To(BeTrue())
 		Expect(api.transIn).NotTo(BeNil())
 		Expect(api.transIn.TransactItems).To(HaveLen(2))
 		ttl, ok := api.transIn.TransactItems[1].Put.Item["ttl"].(*types.AttributeValueMemberN)
@@ -131,5 +134,19 @@ var _ = Describe("LoginStoreCreateLoginSession", func() {
 		Expect(ttl.Value).To(Equal("604900"))
 		api.transErr = errors.New("write failed")
 		Expect(store.CreateLoginSession(context.Background(), auth.RefreshSession{})).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("CreateLoginSessionRejectsInvalidPersistenceIDs", func() {
+	It("rejects invalid IDs before issuing a transaction", func() {
+		for _, session := range []auth.RefreshSession{
+			{SessionID: "invalid", UserID: "0192f8a0-7b00-7000-8000-000000000001"},
+			{SessionID: "0192f8a0-7b00-7000-8000-000000000002", UserID: "invalid"},
+		} {
+			api := &loginStoreAPI{}
+			err := (Store{Client: api}).CreateLoginSession(context.Background(), session)
+			Expect(errors.Is(err, auth.ErrValidation)).To(BeTrue())
+			Expect(api.transIn).To(BeNil())
+		}
 	})
 })

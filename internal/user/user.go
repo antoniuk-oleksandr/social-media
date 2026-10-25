@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-var ErrNotFound = errors.New("user not found")
+var (
+	ErrNotFound              = errors.New("user not found")
+	ErrDependencyUnavailable = errors.New("dependency unavailable")
+)
 
 type Role string
 
