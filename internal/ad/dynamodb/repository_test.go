@@ -19,13 +19,23 @@ func TestRepositorySuite(t *testing.T) {
 }
 
 type putItemAPI struct {
-	input *dynamodb.PutItemInput
-	err   error
+	input     *dynamodb.PutItemInput
+	getInput  *dynamodb.GetItemInput
+	getOutput *dynamodb.GetItemOutput
+	err       error
 }
 
 func (f *putItemAPI) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
 	f.input = input
 	return &dynamodb.PutItemOutput{}, f.err
+}
+
+func (f *putItemAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	f.getInput = input
+	if f.getOutput != nil {
+		return f.getOutput, f.err
+	}
+	return &dynamodb.GetItemOutput{}, f.err
 }
 
 var _ = Describe("Create", func() {

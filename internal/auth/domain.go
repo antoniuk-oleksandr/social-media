@@ -15,6 +15,7 @@ var (
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
 	ErrInvalidCredentials    = errors.New("invalid credentials")
 	ErrInvalidRefreshToken   = errors.New("invalid refresh token")
+	ErrForbidden             = errors.New("forbidden")
 )
 
 type RegisterCommand struct{ Username, Email, Password, DisplayName string }

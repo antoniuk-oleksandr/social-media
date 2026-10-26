@@ -13,13 +13,21 @@ import (
 )
 
 type fakeRepository struct {
-	value Advertisement
-	err   error
+	value    Advertisement
+	err      error
+	getID    string
+	getCalls int
 }
 
 func (f *fakeRepository) Create(_ context.Context, value Advertisement) error {
 	f.value = value
 	return f.err
+}
+
+func (f *fakeRepository) GetByID(_ context.Context, id string) (Advertisement, error) {
+	f.getID = id
+	f.getCalls++
+	return f.value, f.err
 }
 
 type fakeIDs struct {

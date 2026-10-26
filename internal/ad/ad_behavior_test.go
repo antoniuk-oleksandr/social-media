@@ -2,13 +2,13 @@ package ad
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -69,7 +69,7 @@ var _ = Describe("POST /api/v1/ads", func() {
 	})
 
 	It("returns 403 for a valid non-admin token", func() {
-		router := NewRouter(NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now})), fakeAuth{err: errors.New("forbidden")})
+		router := NewRouter(NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now})), fakeAuth{err: auth.ErrForbidden})
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/ads", strings.NewReader(`{"advertiser":"Example","content":"hello","targetUrl":"https://example.com","startsAt":"2026-10-18T11:00:00Z","endsAt":"2026-10-18T13:00:00Z","status":"active"}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Authorization", "Bearer user-token")

@@ -13,6 +13,8 @@ import (
 
 var (
 	ErrValidation            = errors.New("invalid advertisement")
+	ErrInvalidID             = errors.New("invalid advertisement id")
+	ErrNotFound              = errors.New("advertisement not found")
 	ErrForbidden             = errors.New("administrator role required")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
 )
@@ -52,12 +54,14 @@ type CreateCommand struct {
 
 type Repository interface {
 	Create(context.Context, Advertisement) error
+	GetByID(context.Context, string) (Advertisement, error)
 }
 type IDGenerator interface{ New() (string, error) }
 type Clock interface{ Now() time.Time }
 
 type Service interface {
 	Create(context.Context, CreateCommand) (Advertisement, error)
+	GetByID(context.Context, string) (Advertisement, error)
 }
 
 type service struct {
@@ -90,6 +94,13 @@ func (s *service) Create(ctx context.Context, command CreateCommand) (Advertisem
 		return Advertisement{}, err
 	}
 	return value, nil
+}
+
+func (s *service) GetByID(ctx context.Context, id string) (Advertisement, error) {
+	if !platformid.IsCanonicalUUIDv7(id) {
+		return Advertisement{}, ErrInvalidID
+	}
+	return s.repository.GetByID(ctx, id)
 }
 
 func validText(value string, min, max int) bool {
