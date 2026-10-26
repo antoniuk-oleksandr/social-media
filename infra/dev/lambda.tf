@@ -122,6 +122,8 @@ resource "aws_lambda_function" "ads" {
       JWT_ISSUER                  = var.jwt_issuer
       JWT_AUDIENCE                = var.jwt_audience
       JWT_ACCESS_SECRET_PARAMETER = aws_ssm_parameter.jwt_signing_key.name
+      ADS_CURSOR_KEY_PARAMETER    = aws_ssm_parameter.ads_cursor_signing_key.name
+      ADS_CURSOR_KEY_ID           = var.jwt_active_kid
       ADS_TABLE                   = aws_dynamodb_table.ads.name
       LOG_LEVEL                   = "info"
     }

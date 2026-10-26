@@ -109,6 +109,22 @@ variable "media_bucket_name" {
   description = "Optional globally unique S3 bucket name for application media."
 }
 
+variable "ads_cursor_key_parameter" {
+  type    = string
+  default = "/social-media/dev/ads/cursor-signing-key"
+}
+
+variable "ads_cursor_key" {
+  type        = string
+  sensitive   = true
+  description = "Ads cursor signing key. Supply through TF_VAR_ads_cursor_key or an uncommitted tfvars file."
+
+  validation {
+    condition     = length(var.ads_cursor_key) >= 32
+    error_message = "The Ads cursor signing key must contain at least 32 characters."
+  }
+}
+
 variable "github_repository" {
   type        = string
   default     = "antoniuk-oleksandr/social-media"

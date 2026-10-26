@@ -441,15 +441,25 @@ data "aws_iam_policy_document" "ads_lambda" {
       "dynamodb:DescribeTable",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
-      "dynamodb:UpdateItem"
+      "dynamodb:UpdateItem",
+      "dynamodb:Query"
     ]
-    resources = [aws_dynamodb_table.ads.arn]
+    resources = [
+      aws_dynamodb_table.ads.arn,
+      "${aws_dynamodb_table.ads.arn}/index/*"
+    ]
   }
   statement {
     sid       = "ReadJWTSigningKey"
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
     resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+  statement {
+    sid       = "ReadFeedCursorSigningKey"
+    effect    = "Allow"
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.ads_cursor_signing_key.arn]
   }
 }
 

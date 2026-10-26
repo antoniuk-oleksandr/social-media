@@ -85,3 +85,5 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+          ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
+          ADS_CURSOR_KEY_ID: local

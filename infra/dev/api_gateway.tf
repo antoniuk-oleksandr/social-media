@@ -41,6 +41,12 @@ resource "aws_apigatewayv2_route" "ads_create" {
   target    = "integrations/${aws_apigatewayv2_integration.ads.id}"
 }
 
+resource "aws_apigatewayv2_route" "ads_list" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/v1/ads"
+  target    = "integrations/${aws_apigatewayv2_integration.ads.id}"
+}
+
 resource "aws_apigatewayv2_route" "ads_by_id" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "GET /api/v1/ads/{adId}"
