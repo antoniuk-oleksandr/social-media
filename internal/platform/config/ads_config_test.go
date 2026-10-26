@@ -18,8 +18,8 @@ var _ = Describe("LoadAdsConfig", func() {
 			}
 		})
 		Expect(os.Setenv("ADS_TABLE", "configured-ads")).To(Succeed())
-		Expect(LoadAdsConfig()).To(Equal(AdsConfig{AdsTable: "configured-ads"}))
+		Expect(LoadAdsConfig()).To(Equal(AdsConfig{AdsTable: "configured-ads", CursorKey: "", CursorKeyID: "v1", CursorVersion: 1}))
 		Expect(os.Unsetenv("ADS_TABLE")).To(Succeed())
-		Expect(LoadAdsConfig()).To(Equal(AdsConfig{AdsTable: "social-media-local-ads"}))
+		Expect(LoadAdsConfig()).To(Equal(AdsConfig{AdsTable: "social-media-local-ads", CursorKey: "", CursorKeyID: "v1", CursorVersion: 1}))
 	})
 })

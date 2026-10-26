@@ -32,6 +32,20 @@ type Response struct {
 	CreatedAt  string `json:"createdAt"`
 }
 
+type ListResponse struct {
+	Items      []Response `json:"items"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+	HasMore    bool       `json:"hasMore"`
+}
+
+func ToListResponse(value ListResult) ListResponse {
+	items := make([]Response, 0, len(value.Items))
+	for _, item := range value.Items {
+		items = append(items, ToResponse(item))
+	}
+	return ListResponse{Items: items, NextCursor: value.NextCursor, HasMore: value.HasMore}
+}
+
 func ToCreateCommand(adminID string, request CreateRequest) (CreateCommand, error) {
 	startsAt, err := time.Parse(time.RFC3339, request.StartsAt)
 	if err != nil {

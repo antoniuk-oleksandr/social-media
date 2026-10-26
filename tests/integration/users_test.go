@@ -36,6 +36,7 @@ var _ = BeforeSuite(func() {
 	var err error
 	userIntegrationSuite, err = support.StartDynamoDB(ctx, "tests-users-by-id")
 	Expect(err).NotTo(HaveOccurred(), "DynamoDB integration suite must start")
+	setupAdsListTable()
 })
 
 var _ = AfterSuite(func() {

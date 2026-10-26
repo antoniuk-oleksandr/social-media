@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
+	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	jwtkey "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/password"
@@ -78,6 +79,29 @@ func NewConfiguredAccessTokenIssuer(cfg aws.Config) (jwtkey.Access, error) {
 		return jwtkey.Access{}, fmt.Errorf("JWT_ACCESS_SECRET is required for local environment")
 	}
 	return jwtkey.Access{Keys: jwtkey.StaticKey{KID: kid, Secret: []byte(secret)}, KID: kid, Issuer: Value("JWT_ISSUER", "social-media-api"), Audience: Value("JWT_AUDIENCE", "social-media-api"), TTL: 15 * time.Minute}, nil
+}
+
+// NewConfiguredAdsConfig resolves the Ads cursor key once during cold start.
+func NewConfiguredAdsConfig(cfg aws.Config) (platformconfig.AdsConfig, error) {
+	ads := platformconfig.LoadAdsConfig()
+	if os.Getenv("APP_ENV") != "local" {
+		parameter := os.Getenv("ADS_CURSOR_KEY_PARAMETER")
+		if parameter == "" {
+			return platformconfig.AdsConfig{}, fmt.Errorf("ADS_CURSOR_KEY_PARAMETER is required")
+		}
+		out, err := ssm.NewFromConfig(cfg).GetParameter(context.Background(), &ssm.GetParameterInput{Name: aws.String(parameter), WithDecryption: aws.Bool(true)})
+		if err != nil || out.Parameter == nil || out.Parameter.Value == nil || *out.Parameter.Value == "" {
+			if err == nil {
+				err = fmt.Errorf("empty cursor signing key")
+			}
+			return platformconfig.AdsConfig{}, fmt.Errorf("load Ads cursor signing key: %w", err)
+		}
+		ads.CursorKey = *out.Parameter.Value
+	}
+	if ads.CursorKey == "" {
+		return platformconfig.AdsConfig{}, fmt.Errorf("ADS_CURSOR_KEY is required for local environment")
+	}
+	return ads, nil
 }
 
 func NewOpaqueTokenGenerator() token.Opaque {

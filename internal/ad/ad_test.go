@@ -13,11 +13,14 @@ import (
 )
 
 type fakeRepository struct {
-	value    Advertisement
-	err      error
-	getID    string
-	getCalls int
-	deleteID string
+	value      Advertisement
+	err        error
+	getID      string
+	getCalls   int
+	deleteID   string
+	listQuery  ListQuery
+	listCalls  int
+	listResult ListResult
 }
 
 func (f *fakeRepository) Create(_ context.Context, value Advertisement) error {
@@ -39,6 +42,15 @@ func (f *fakeRepository) GetByID(_ context.Context, id string) (Advertisement, e
 func (f *fakeRepository) Delete(_ context.Context, id string) error {
 	f.deleteID = id
 	return f.err
+}
+
+func (f *fakeRepository) List(_ context.Context, query ListQuery) (ListResult, error) {
+	f.listQuery = query
+	f.listCalls++
+	if f.listResult.Items != nil || f.listResult.NextCursor != "" || f.listResult.HasMore {
+		return f.listResult, f.err
+	}
+	return ListResult{Items: []Advertisement{f.value}}, f.err
 }
 
 type fakeIDs struct {

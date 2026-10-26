@@ -7,7 +7,7 @@ import (
 
 	"github.com/akrylysov/algnhsa"
 	adfx "github.com/antoniuk-oleksandr/social-media/internal/ad/fx"
-	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
+
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -18,7 +18,7 @@ func main() {
 	var handler http.Handler
 	app := fx.New(
 		fx.Provide(func() context.Context { return context.Background() }),
-		fx.Provide(platformfx.LoadAWSConfig, platformconfig.LoadAdsConfig, platformfx.NewDynamoDBClient, platformfx.NewClock, platformfx.NewIDGenerator, platformlogging.New, platformfx.NewConfiguredAccessTokenIssuer, adfx.NewRepository, adfx.NewService, adfx.NewHandler, adfx.NewRouter),
+		fx.Provide(platformfx.LoadAWSConfig, platformfx.NewConfiguredAdsConfig, platformfx.NewDynamoDBClient, platformfx.NewClock, platformfx.NewIDGenerator, platformlogging.New, platformfx.NewConfiguredAccessTokenIssuer, adfx.NewRepository, adfx.NewService, adfx.NewHandler, adfx.NewRouter),
 		fx.Populate(&handler),
 	)
 	ctx := context.Background()

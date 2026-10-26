@@ -18,7 +18,10 @@ type PostsConfig struct {
 }
 
 type AdsConfig struct {
-	AdsTable string
+	AdsTable      string
+	CursorKey     string
+	CursorKeyID   string
+	CursorVersion int
 }
 
 func Load() (aws.Config, error) {
@@ -38,7 +41,7 @@ func LoadPostsConfig() PostsConfig {
 }
 
 func LoadAdsConfig() AdsConfig {
-	return AdsConfig{AdsTable: value("ADS_TABLE", "social-media-local-ads")}
+	return AdsConfig{AdsTable: value("ADS_TABLE", "social-media-local-ads"), CursorKey: os.Getenv("ADS_CURSOR_KEY"), CursorKeyID: value("ADS_CURSOR_KEY_ID", "v1"), CursorVersion: 1}
 }
 
 func value(key, fallback string) string {

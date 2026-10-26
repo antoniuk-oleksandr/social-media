@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
@@ -77,6 +79,78 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(loggedWriter, http.StatusCreated, ToResponse(value))
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusOK
+	var requestErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logRequest("GET /api/v1/ads", rid, status, requestErr, time.Since(startedAt), adminIDFromRequest(r))
+	}()
+	values, parseErr := strictQuery(r.URL.RawQuery)
+	if parseErr != nil {
+		requestErr = parseErr
+		writeError(loggedWriter, http.StatusBadRequest, "INVALID_QUERY", "Invalid query parameters", rid)
+		return
+	}
+	for key, items := range values {
+		if key != "status" && key != "limit" && key != "cursor" || len(items) != 1 || items[0] == "" {
+			requestErr = ErrInvalidQuery
+			writeError(loggedWriter, http.StatusBadRequest, "INVALID_QUERY", "Invalid query parameters", rid)
+			return
+		}
+	}
+	query := ListQuery{Status: Status(values.Get("status")), Limit: 20, Cursor: values.Get("cursor")}
+	query.UserID, _ = authenticatedAdminID(r)
+	if rawLimit := values.Get("limit"); rawLimit != "" {
+		value, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			requestErr = ErrInvalidQuery
+			writeError(loggedWriter, http.StatusBadRequest, "INVALID_QUERY", "Invalid query parameters", rid)
+			return
+		}
+		query.Limit = value
+	}
+	result, err := h.service.List(r.Context(), query)
+	if err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrInvalidQuery):
+			status, code, message = http.StatusBadRequest, "INVALID_QUERY", "Invalid query parameters"
+		case errors.Is(err, ErrInvalidCursor):
+			status, code, message = http.StatusBadRequest, "INVALID_CURSOR", "Invalid cursor"
+		case errors.Is(err, ErrCursorExpired):
+			status, code, message = http.StatusBadRequest, "CURSOR_EXPIRED", "Cursor expired"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	writeJSON(loggedWriter, http.StatusOK, ToListResponse(result))
+}
+
+func strictQuery(raw string) (url.Values, error) {
+	if raw == "" {
+		return url.Values{}, nil
+	}
+	for _, part := range strings.Split(raw, "&") {
+		if part == "" {
+			return nil, ErrInvalidQuery
+		}
+	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil, ErrInvalidQuery
+	}
+	return values, nil
 }
 
 func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
