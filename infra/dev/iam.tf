@@ -420,7 +420,7 @@ data "aws_iam_policy_document" "ads_lambda" {
   statement {
     sid       = "CreateAds"
     effect    = "Allow"
-    actions   = ["dynamodb:DescribeTable", "dynamodb:PutItem"]
+    actions   = ["dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [aws_dynamodb_table.ads.arn]
   }
   statement {
