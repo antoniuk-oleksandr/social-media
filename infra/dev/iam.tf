@@ -334,6 +334,22 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
+    sid    = "DeployAdsLambda"
+    effect = "Allow"
+    actions = [
+      "lambda:GetFunction",
+      "lambda:GetFunctionConfiguration",
+      "lambda:GetFunctionCodeSigningConfig",
+      "lambda:ListVersionsByFunction",
+      "lambda:UpdateFunctionCode",
+      "lambda:UpdateFunctionConfiguration"
+    ]
+    resources = [
+      "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.ads_function}"
+    ]
+  }
+
+  statement {
     sid       = "PassApplicationLambdaRoles"
     effect    = "Allow"
     actions   = ["iam:PassRole"]
@@ -418,9 +434,14 @@ data "aws_iam_policy_document" "ads_lambda" {
     resources = ["${aws_cloudwatch_log_group.ads.arn}:*"]
   }
   statement {
-    sid       = "CreateAds"
-    effect    = "Allow"
-    actions   = ["dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem"]
+    sid    = "CreateAds"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem"
+    ]
     resources = [aws_dynamodb_table.ads.arn]
   }
   statement {

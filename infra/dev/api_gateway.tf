@@ -47,6 +47,12 @@ resource "aws_apigatewayv2_route" "ads_by_id" {
   target    = "integrations/${aws_apigatewayv2_integration.ads.id}"
 }
 
+resource "aws_apigatewayv2_route" "ads_update_by_id" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "PATCH /api/v1/ads/{adId}"
+  target    = "integrations/${aws_apigatewayv2_integration.ads.id}"
+}
+
 resource "aws_apigatewayv2_route" "users_by_id" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "GET /api/v1/users/{userId}"
