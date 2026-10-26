@@ -437,6 +437,7 @@ data "aws_iam_policy_document" "ads_lambda" {
     sid    = "CreateAds"
     effect = "Allow"
     actions = [
+      "dynamodb:DeleteItem",
       "dynamodb:DescribeTable",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
