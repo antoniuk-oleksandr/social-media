@@ -2,6 +2,7 @@ package ad
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"net/url"
@@ -18,6 +19,9 @@ var (
 	ErrInvalidState          = errors.New("invalid advertisement state transition")
 	ErrForbidden             = errors.New("administrator role required")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
+	ErrInvalidQuery          = errors.New("invalid advertisement query")
+	ErrInvalidCursor         = errors.New("invalid advertisement cursor")
+	ErrCursorExpired         = errors.New("expired advertisement cursor")
 )
 
 type Status string
@@ -41,6 +45,19 @@ type Advertisement struct {
 	CreatedBy      string
 	CreatedAt      time.Time
 	CreatedAtEpoch int64
+}
+
+type ListQuery struct {
+	Status Status
+	Limit  int
+	Cursor string
+	UserID string
+}
+
+type ListResult struct {
+	Items      []Advertisement
+	NextCursor string
+	HasMore    bool
 }
 
 type CreateCommand struct {
@@ -68,6 +85,7 @@ type Repository interface {
 	GetByID(context.Context, string) (Advertisement, error)
 	Update(context.Context, Advertisement) error
 	Delete(context.Context, string) error
+	List(context.Context, ListQuery) (ListResult, error)
 }
 type IDGenerator interface{ New() (string, error) }
 type Clock interface{ Now() time.Time }
@@ -77,6 +95,7 @@ type Service interface {
 	GetByID(context.Context, string) (Advertisement, error)
 	Update(context.Context, UpdateCommand) (Advertisement, error)
 	Delete(context.Context, string) error
+	List(context.Context, ListQuery) (ListResult, error)
 }
 
 type service struct {
@@ -172,6 +191,31 @@ func (s *service) Delete(ctx context.Context, id string) error {
 		return ErrInvalidID
 	}
 	return s.repository.Delete(ctx, id)
+}
+
+func (s *service) List(ctx context.Context, query ListQuery) (ListResult, error) {
+	if query.Status == "" {
+		query.Status = StatusActive
+	}
+	if !validStatus(query.Status) || query.Limit < 1 || query.Limit > 50 {
+		return ListResult{}, ErrInvalidQuery
+	}
+	if len(query.Cursor) > 4096 || (query.Cursor != "" && strings.TrimSpace(query.Cursor) != query.Cursor) {
+		return ListResult{}, ErrInvalidCursor
+	}
+	if query.Cursor != "" {
+		parts := strings.Split(query.Cursor, ".")
+		if len(parts) != 2 {
+			return ListResult{}, ErrInvalidCursor
+		}
+		if _, err := base64.RawURLEncoding.DecodeString(parts[0]); err != nil {
+			return ListResult{}, ErrInvalidCursor
+		}
+		if _, err := base64.RawURLEncoding.DecodeString(parts[1]); err != nil {
+			return ListResult{}, ErrInvalidCursor
+		}
+	}
+	return s.repository.List(ctx, query)
 }
 
 func validText(value string, min, max int) bool {

@@ -14,7 +14,7 @@ import (
 )
 
 func NewRepository(client *dynamodb.Client, cfg platformconfig.AdsConfig) adfeature.Repository {
-	return addb.NewRepository(client, cfg.AdsTable)
+	return addb.NewConfiguredRepository(client, cfg)
 }
 func NewService(repository adfeature.Repository, ids platformid.UUIDv7, clock platformclock.Real) adfeature.Service {
 	return adfeature.NewService(repository, ids, clock)

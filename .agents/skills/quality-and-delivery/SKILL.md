@@ -30,7 +30,7 @@ The full local requirements are in [`go-architecture.md`](../social-media-mvp/re
 - Terraform owns Lambda functions, API Gateway HTTP API, DynamoDB, IAM, CloudWatch log groups, Lambda configuration, and OIDC permissions.
 - Every public endpoint must be represented in Terraform under `infra/dev`: the deployed method/path route, its Lambda integration target, and the API Gateway invoke permission must be reviewable in the plan. A Lambda or Chi route alone does not expose an AWS endpoint.
 - GitHub Actions owns Go tests, ARM64 compilation, ZIP packaging, code deployment, and smoke tests.
-- Use SSM Parameter Store SecureString for JWT and feed cursor signing keys.
+- Use SSM Parameter Store SecureString for JWT and Ads cursor signing keys.
 - Do not store secrets in Git, `.tfvars`, GitHub Actions secrets, or Lambda source artifacts.
 
 ## Build artifacts

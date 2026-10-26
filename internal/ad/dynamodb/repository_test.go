@@ -19,11 +19,15 @@ func TestRepositorySuite(t *testing.T) {
 }
 
 type putItemAPI struct {
-	input       *dynamodb.PutItemInput
-	getInput    *dynamodb.GetItemInput
-	getOutput   *dynamodb.GetItemOutput
-	deleteInput *dynamodb.DeleteItemInput
-	err         error
+	input        *dynamodb.PutItemInput
+	getInput     *dynamodb.GetItemInput
+	getOutput    *dynamodb.GetItemOutput
+	deleteInput  *dynamodb.DeleteItemInput
+	queryInput   *dynamodb.QueryInput
+	queryOutput  *dynamodb.QueryOutput
+	queryOutputs []*dynamodb.QueryOutput
+	queryCalls   int
+	err          error
 }
 
 func (f *putItemAPI) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -42,6 +46,21 @@ func (f *putItemAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ 
 func (f *putItemAPI) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	f.deleteInput = input
 	return &dynamodb.DeleteItemOutput{}, f.err
+}
+
+func (f *putItemAPI) Query(_ context.Context, input *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	f.queryInput = input
+	f.queryCalls++
+	if len(f.queryOutputs) >= f.queryCalls {
+		return f.queryOutputs[f.queryCalls-1], f.err
+	}
+	if f.queryCalls > 1 {
+		return &dynamodb.QueryOutput{}, f.err
+	}
+	if f.queryOutput != nil {
+		return f.queryOutput, f.err
+	}
+	return &dynamodb.QueryOutput{}, f.err
 }
 
 var _ = Describe("Create", func() {

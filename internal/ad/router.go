@@ -48,6 +48,28 @@ func NewRouter(handler *Handler, authenticator TokenAuthenticator) http.Handler 
 		}
 		handler.Create(w, WithAuthenticatedAdminID(r, id))
 	})
+	router.HandleFunc("GET /api/v1/ads", func(w http.ResponseWriter, r *http.Request) {
+		startedAt := time.Now()
+		const prefix = "Bearer "
+		header := r.Header.Get("Authorization")
+		if !strings.HasPrefix(header, prefix) || strings.TrimSpace(strings.TrimPrefix(header, prefix)) == "" {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required", requestID(r))
+			handler.logRequest("GET /api/v1/ads", requestID(r), http.StatusUnauthorized, errors.New("UNAUTHORIZED"), time.Since(startedAt))
+			return
+		}
+		id, err := authenticator.AuthenticateAdmin(r.Context(), strings.TrimPrefix(header, prefix))
+		if err != nil {
+			if errors.Is(err, auth.ErrForbidden) {
+				writeError(w, http.StatusForbidden, "FORBIDDEN", "Administrator role required", requestID(r))
+				handler.logRequest("GET /api/v1/ads", requestID(r), http.StatusForbidden, errors.New("FORBIDDEN"), time.Since(startedAt))
+				return
+			}
+			writeError(w, http.StatusUnauthorized, "INVALID_TOKEN", "Invalid access token", requestID(r))
+			handler.logRequest("GET /api/v1/ads", requestID(r), http.StatusUnauthorized, errors.New("INVALID_TOKEN"), time.Since(startedAt))
+			return
+		}
+		handler.List(w, WithAuthenticatedAdminID(r, id))
+	})
 	router.HandleFunc("GET /api/v1/ads/{adId}", func(w http.ResponseWriter, r *http.Request) {
 		startedAt := time.Now()
 		const prefix = "Bearer "

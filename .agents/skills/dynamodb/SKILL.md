@@ -22,6 +22,7 @@ The authoritative local copies are [`database.md`](../social-media-mvp/reference
 - Advertisements: admin CRUD and eligibility query for active, time-valid ads.
 - Refresh sessions: hash-key lookup, atomic consume-and-replace rotation, family lookup, conditional revocation, and TTL cleanup.
 - Feed: preserve the exact `LastEvaluatedKey` in the signed cursor. Do not filter a page after querying in a way that loses continuation state.
+- Never use a DynamoDB `Query` limit plus raw `LastEvaluatedKey` as the complete ordering boundary when the index sort key omits a required tie-breaker. Persist the full ordered key in the index, or consume all DynamoDB pages before applying the complete `(timestamp, ID)` order; encode that semantic boundary in the cursor and use `ExclusiveStartKey` only for query pages whose key schema matches the ordering.
 
 ## Transactions and concurrency
 
