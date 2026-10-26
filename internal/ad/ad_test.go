@@ -17,6 +17,7 @@ type fakeRepository struct {
 	err      error
 	getID    string
 	getCalls int
+	deleteID string
 }
 
 func (f *fakeRepository) Create(_ context.Context, value Advertisement) error {
@@ -33,6 +34,11 @@ func (f *fakeRepository) GetByID(_ context.Context, id string) (Advertisement, e
 	f.getID = id
 	f.getCalls++
 	return f.value, f.err
+}
+
+func (f *fakeRepository) Delete(_ context.Context, id string) error {
+	f.deleteID = id
+	return f.err
 }
 
 type fakeIDs struct {
