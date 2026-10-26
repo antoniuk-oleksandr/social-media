@@ -106,7 +106,18 @@ jobs:
             --output text)"
           test "${#signing_key}" -ge 32
           echo "::add-mask::$signing_key"
-          echo "TF_VAR_jwt_signing_key=$signing_key" >> "$GITHUB_ENV"
+          ads_cursor_parameter_name="$(terraform output -raw ads_cursor_key_parameter 2>/dev/null || echo '/social-media/dev/ads/cursor-signing-key')"
+          ads_cursor_key="$(aws ssm get-parameter \
+            --name "$ads_cursor_parameter_name" \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text)"
+          test "${#ads_cursor_key}" -ge 32
+          echo "::add-mask::$ads_cursor_key"
+          {
+            echo "TF_VAR_jwt_signing_key=$signing_key"
+            echo "TF_VAR_ads_cursor_key=$ads_cursor_key"
+          } >> "$GITHUB_ENV"
 
       - name: Plan infrastructure deployment
         working-directory: infra/dev

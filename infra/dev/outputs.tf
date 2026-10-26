@@ -30,6 +30,10 @@ output "jwt_signing_key_parameter" {
   value = aws_ssm_parameter.jwt_signing_key.name
 }
 
+output "ads_cursor_key_parameter" {
+  value = aws_ssm_parameter.ads_cursor_signing_key.name
+}
+
 output "github_actions_role_arn" {
   value = aws_iam_role.github_actions_deploy.arn
 }
