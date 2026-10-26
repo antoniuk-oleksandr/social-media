@@ -2,8 +2,10 @@ package jwt
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,6 +22,7 @@ var _ = Describe("AuthenticateAdmin", func() {
 		userToken, err := access.Issue(context.Background(), user.User{ID: "0192f8a0-7b00-7000-8000-000000000302", Role: user.RoleUser}, time.Now())
 		Expect(err).NotTo(HaveOccurred())
 		_, err = access.AuthenticateAdmin(context.Background(), userToken)
+		Expect(errors.Is(err, auth.ErrForbidden)).To(BeTrue())
 		Expect(err).To(MatchError("forbidden: administrator role required"))
 	})
 })

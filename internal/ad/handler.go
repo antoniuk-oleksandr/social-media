@@ -9,6 +9,7 @@ import (
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/antoniuk-oleksandr/social-media/internal/shared/httpjson"
+	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
@@ -34,7 +35,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		if loggedWriter.status != 0 {
 			status = loggedWriter.status
 		}
-		h.logRequest(rid, status, requestErr, time.Since(startedAt))
+		h.logRequest("POST /api/v1/ads", rid, status, requestErr, time.Since(startedAt), adminIDFromRequest(r))
 	}()
 
 	adminID, ok := authenticatedAdminID(r)
@@ -78,15 +79,49 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusCreated, ToResponse(value))
 }
 
-func (h *Handler) logRequest(requestID string, status int, requestErr error, duration time.Duration) {
+func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusOK
+	var requestErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logRequest("GET /api/v1/ads/{adId}", rid, status, requestErr, time.Since(startedAt), adminIDFromRequest(r))
+	}()
+
+	value, err := h.service.GetByID(r.Context(), chi.URLParam(r, "adId"))
+	if err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrInvalidID):
+			status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid advertisement ID"
+		case errors.Is(err, ErrNotFound):
+			status, code, message = http.StatusNotFound, "NOT_FOUND", "Advertisement not found"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	writeJSON(loggedWriter, http.StatusOK, ToResponse(value))
+}
+
+func (h *Handler) logRequest(route, requestID string, status int, requestErr error, duration time.Duration, adminID ...string) {
 	if h.logger == nil {
 		return
 	}
 	fields := []logging.Field{
 		logging.String("request_id", requestID),
-		logging.String("route", "POST /api/v1/ads"),
+		logging.String("route", route),
 		logging.String("status", strconv.Itoa(status)),
 		logging.String("duration", duration.String()),
+	}
+	if len(adminID) > 0 && adminID[0] != "" {
+		fields = append(fields, logging.String("admin_id", adminID[0]))
 	}
 	if requestErr != nil {
 		fields = append(fields, logging.Error(requestErr))
@@ -122,6 +157,11 @@ func requestID(r *http.Request) string {
 		return id
 	}
 	return "req-local"
+}
+
+func adminIDFromRequest(r *http.Request) string {
+	id, _ := authenticatedAdminID(r)
+	return id
 }
 
 type errorResponse struct {

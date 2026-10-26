@@ -46,7 +46,7 @@ func (a Access) AuthenticateAdmin(ctx context.Context, token string) (string, er
 		return "", err
 	}
 	if role != "admin" {
-		return "", fmt.Errorf("forbidden: administrator role required")
+		return "", fmt.Errorf("%w: administrator role required", auth.ErrForbidden)
 	}
 	return sub, nil
 }
