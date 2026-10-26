@@ -67,6 +67,7 @@ type Repository interface {
 	Create(context.Context, Advertisement) error
 	GetByID(context.Context, string) (Advertisement, error)
 	Update(context.Context, Advertisement) error
+	Delete(context.Context, string) error
 }
 type IDGenerator interface{ New() (string, error) }
 type Clock interface{ Now() time.Time }
@@ -75,6 +76,7 @@ type Service interface {
 	Create(context.Context, CreateCommand) (Advertisement, error)
 	GetByID(context.Context, string) (Advertisement, error)
 	Update(context.Context, UpdateCommand) (Advertisement, error)
+	Delete(context.Context, string) error
 }
 
 type service struct {
@@ -163,6 +165,13 @@ func (s *service) Update(ctx context.Context, command UpdateCommand) (Advertisem
 		return Advertisement{}, err
 	}
 	return value, nil
+}
+
+func (s *service) Delete(ctx context.Context, id string) error {
+	if !platformid.IsCanonicalUUIDv7(id) {
+		return ErrInvalidID
+	}
+	return s.repository.Delete(ctx, id)
 }
 
 func validText(value string, min, max int) bool {

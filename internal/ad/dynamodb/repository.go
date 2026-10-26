@@ -15,6 +15,7 @@ import (
 type API interface {
 	PutItem(context.Context, *dynamodb.PutItemInput, ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	DeleteItem(context.Context, *dynamodb.DeleteItemInput, ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
 }
 type Repository struct {
 	Client    API
@@ -34,6 +35,22 @@ func (r *Repository) Create(ctx context.Context, value ad.Advertisement) error {
 
 func (r *Repository) Update(ctx context.Context, value ad.Advertisement) error {
 	_, err := r.Client.PutItem(ctx, putInput(r.TableName, value, "attribute_exists(adId)"))
+	if err != nil {
+		var conditionErr *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionErr) {
+			return ad.ErrNotFound
+		}
+		return ad.ErrDependencyUnavailable
+	}
+	return nil
+}
+
+func (r *Repository) Delete(ctx context.Context, id string) error {
+	_, err := r.Client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName:           aws.String(r.TableName),
+		Key:                 map[string]types.AttributeValue{"adId": &types.AttributeValueMemberS{Value: id}},
+		ConditionExpression: aws.String("attribute_exists(adId)"),
+	})
 	if err != nil {
 		var conditionErr *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionErr) {

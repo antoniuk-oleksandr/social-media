@@ -162,6 +162,36 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusOK, ToResponse(value))
 }
 
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusNoContent
+	var requestErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logRequest("DELETE /api/v1/ads/{adId}", rid, status, requestErr, time.Since(startedAt), adminIDFromRequest(r))
+	}()
+
+	if err := h.service.Delete(r.Context(), chi.URLParam(r, "adId")); err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrInvalidID):
+			status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid advertisement ID"
+		case errors.Is(err, ErrNotFound):
+			status, code, message = http.StatusNotFound, "NOT_FOUND", "Advertisement not found"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	loggedWriter.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) logRequest(route, requestID string, status int, requestErr error, duration time.Duration, adminID ...string) {
 	if h.logger == nil {
 		return

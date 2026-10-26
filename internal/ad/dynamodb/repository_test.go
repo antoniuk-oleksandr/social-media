@@ -19,10 +19,11 @@ func TestRepositorySuite(t *testing.T) {
 }
 
 type putItemAPI struct {
-	input     *dynamodb.PutItemInput
-	getInput  *dynamodb.GetItemInput
-	getOutput *dynamodb.GetItemOutput
-	err       error
+	input       *dynamodb.PutItemInput
+	getInput    *dynamodb.GetItemInput
+	getOutput   *dynamodb.GetItemOutput
+	deleteInput *dynamodb.DeleteItemInput
+	err         error
 }
 
 func (f *putItemAPI) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
@@ -36,6 +37,11 @@ func (f *putItemAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ 
 		return f.getOutput, f.err
 	}
 	return &dynamodb.GetItemOutput{}, f.err
+}
+
+func (f *putItemAPI) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	f.deleteInput = input
+	return &dynamodb.DeleteItemOutput{}, f.err
 }
 
 var _ = Describe("Create", func() {
@@ -80,6 +86,29 @@ var _ = Describe("Update", func() {
 	It("maps other DynamoDB failures to dependency unavailable", func() {
 		api := &putItemAPI{err: errors.New("dynamodb unavailable")}
 		err := (&Repository{Client: api, TableName: "ads-test"}).Update(context.Background(), value)
+		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
+	})
+})
+
+var _ = Describe("Delete", func() {
+	It("deletes by ad ID with an existence condition", func() {
+		api := &putItemAPI{}
+		err := (&Repository{Client: api, TableName: "ads-test"}).Delete(context.Background(), "0192f8a0-7b00-7000-8000-000000000901")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(*api.deleteInput.TableName).To(Equal("ads-test"))
+		Expect(api.deleteInput.Key["adId"]).To(Equal(&types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000901"}))
+		Expect(*api.deleteInput.ConditionExpression).To(Equal("attribute_exists(adId)"))
+	})
+
+	It("maps a failed existence condition to not found", func() {
+		api := &putItemAPI{err: &types.ConditionalCheckFailedException{}}
+		err := (&Repository{Client: api, TableName: "ads-test"}).Delete(context.Background(), "0192f8a0-7b00-7000-8000-000000000901")
+		Expect(err).To(MatchError(ad.ErrNotFound))
+	})
+
+	It("maps other DynamoDB failures to dependency unavailable", func() {
+		api := &putItemAPI{err: errors.New("dynamodb unavailable")}
+		err := (&Repository{Client: api, TableName: "ads-test"}).Delete(context.Background(), "0192f8a0-7b00-7000-8000-000000000901")
 		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
 	})
 })
