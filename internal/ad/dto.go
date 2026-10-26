@@ -11,6 +11,15 @@ type CreateRequest struct {
 	Status     Status `json:"status"`
 }
 
+type UpdateRequest struct {
+	Advertiser *string `json:"advertiser"`
+	Content    *string `json:"content"`
+	TargetURL  *string `json:"targetUrl"`
+	StartsAt   *string `json:"startsAt"`
+	EndsAt     *string `json:"endsAt"`
+	Status     *Status `json:"status"`
+}
+
 type Response struct {
 	ID         string `json:"id"`
 	Type       string `json:"type"`
@@ -33,6 +42,25 @@ func ToCreateCommand(adminID string, request CreateRequest) (CreateCommand, erro
 		return CreateCommand{}, ErrValidation
 	}
 	return CreateCommand{AdminID: adminID, Advertiser: request.Advertiser, Content: request.Content, TargetURL: request.TargetURL, StartsAt: startsAt, EndsAt: endsAt, Status: request.Status}, nil
+}
+
+func ToUpdateCommand(id string, request UpdateRequest) (UpdateCommand, error) {
+	command := UpdateCommand{AdID: id, Advertiser: request.Advertiser, Content: request.Content, TargetURL: request.TargetURL, Status: request.Status}
+	if request.StartsAt != nil {
+		value, err := time.Parse(time.RFC3339, *request.StartsAt)
+		if err != nil {
+			return UpdateCommand{}, ErrValidation
+		}
+		command.StartsAt = &value
+	}
+	if request.EndsAt != nil {
+		value, err := time.Parse(time.RFC3339, *request.EndsAt)
+		if err != nil {
+			return UpdateCommand{}, ErrValidation
+		}
+		command.EndsAt = &value
+	}
+	return command, nil
 }
 
 func ToResponse(value Advertisement) Response {

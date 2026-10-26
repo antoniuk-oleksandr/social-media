@@ -110,6 +110,58 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(loggedWriter, http.StatusOK, ToResponse(value))
 }
 
+func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
+	rid := requestID(r)
+	status := http.StatusOK
+	var requestErr error
+	loggedWriter := &responseWriter{ResponseWriter: w}
+	defer func() {
+		if loggedWriter.status != 0 {
+			status = loggedWriter.status
+		}
+		h.logRequest("PATCH /api/v1/ads/{adId}", rid, status, requestErr, time.Since(startedAt), adminIDFromRequest(r))
+	}()
+	if r.Header.Get("Content-Type") != "application/json" {
+		writeError(loggedWriter, http.StatusBadRequest, "INVALID_JSON", "Content-Type must be application/json", rid)
+		return
+	}
+	var request UpdateRequest
+	if err := httpjson.Decode(r, &request); err != nil {
+		requestErr = err
+		status, code, msg := http.StatusBadRequest, "INVALID_JSON", "Invalid JSON"
+		if errors.Is(err, httpjson.ErrPayloadTooLarge) {
+			status, code, msg = http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Request body is too large"
+		}
+		writeError(loggedWriter, status, code, msg, rid)
+		return
+	}
+	command, err := ToUpdateCommand(chi.URLParam(r, "adId"), request)
+	if err != nil {
+		requestErr = err
+		writeError(loggedWriter, http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid advertisement fields", rid)
+		return
+	}
+	value, err := h.service.Update(r.Context(), command)
+	if err != nil {
+		requestErr = err
+		status, code, message := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error"
+		switch {
+		case errors.Is(err, ErrInvalidID), errors.Is(err, ErrValidation):
+			status, code, message = http.StatusUnprocessableEntity, "VALIDATION_FAILED", "Invalid advertisement fields"
+		case errors.Is(err, ErrInvalidState):
+			status, code, message = http.StatusConflict, "INVALID_STATE", "Invalid advertisement state transition"
+		case errors.Is(err, ErrNotFound):
+			status, code, message = http.StatusNotFound, "NOT_FOUND", "Advertisement not found"
+		case errors.Is(err, ErrDependencyUnavailable):
+			status, code, message = http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Service temporarily unavailable"
+		}
+		writeError(loggedWriter, status, code, message, rid)
+		return
+	}
+	writeJSON(loggedWriter, http.StatusOK, ToResponse(value))
+}
+
 func (h *Handler) logRequest(route, requestID string, status int, requestErr error, duration time.Duration, adminID ...string) {
 	if h.logger == nil {
 		return

@@ -62,3 +62,24 @@ var _ = Describe("Create", func() {
 		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
 	})
 })
+
+var _ = Describe("Update", func() {
+	value := ad.Advertisement{
+		ID: "0192f8a0-7b00-0000-0000-000000000901", Type: "ad", Advertiser: "Example", Content: "hello", TargetURL: "https://example.com",
+		StartsAt: time.Date(2026, 10, 18, 11, 0, 0, 0, time.UTC), EndsAt: time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC), Status: ad.StatusActive,
+		CreatedBy: "0192f8a0-7b00-0000-0000-000000000902", CreatedAt: time.Date(2026, 10, 18, 12, 0, 0, 123000000, time.UTC), CreatedAtEpoch: 1792326900123,
+	}
+
+	It("maps a failed existence condition to not found", func() {
+		api := &putItemAPI{err: &types.ConditionalCheckFailedException{}}
+		err := (&Repository{Client: api, TableName: "ads-test"}).Update(context.Background(), value)
+		Expect(*api.input.ConditionExpression).To(Equal("attribute_exists(adId)"))
+		Expect(err).To(MatchError(ad.ErrNotFound))
+	})
+
+	It("maps other DynamoDB failures to dependency unavailable", func() {
+		api := &putItemAPI{err: errors.New("dynamodb unavailable")}
+		err := (&Repository{Client: api, TableName: "ads-test"}).Update(context.Background(), value)
+		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
+	})
+})

@@ -15,6 +15,7 @@ var (
 	ErrValidation            = errors.New("invalid advertisement")
 	ErrInvalidID             = errors.New("invalid advertisement id")
 	ErrNotFound              = errors.New("advertisement not found")
+	ErrInvalidState          = errors.New("invalid advertisement state transition")
 	ErrForbidden             = errors.New("administrator role required")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
 )
@@ -52,9 +53,20 @@ type CreateCommand struct {
 	Status     Status
 }
 
+type UpdateCommand struct {
+	AdID       string
+	Advertiser *string
+	Content    *string
+	TargetURL  *string
+	StartsAt   *time.Time
+	EndsAt     *time.Time
+	Status     *Status
+}
+
 type Repository interface {
 	Create(context.Context, Advertisement) error
 	GetByID(context.Context, string) (Advertisement, error)
+	Update(context.Context, Advertisement) error
 }
 type IDGenerator interface{ New() (string, error) }
 type Clock interface{ Now() time.Time }
@@ -62,6 +74,7 @@ type Clock interface{ Now() time.Time }
 type Service interface {
 	Create(context.Context, CreateCommand) (Advertisement, error)
 	GetByID(context.Context, string) (Advertisement, error)
+	Update(context.Context, UpdateCommand) (Advertisement, error)
 }
 
 type service struct {
@@ -103,6 +116,55 @@ func (s *service) GetByID(ctx context.Context, id string) (Advertisement, error)
 	return s.repository.GetByID(ctx, id)
 }
 
+func (s *service) Update(ctx context.Context, command UpdateCommand) (Advertisement, error) {
+	if !platformid.IsCanonicalUUIDv7(command.AdID) {
+		return Advertisement{}, ErrInvalidID
+	}
+	if command.Advertiser == nil && command.Content == nil && command.TargetURL == nil && command.StartsAt == nil && command.EndsAt == nil && command.Status == nil {
+		return Advertisement{}, ErrValidation
+	}
+	value, err := s.repository.GetByID(ctx, command.AdID)
+	if err != nil {
+		return Advertisement{}, err
+	}
+	previousStatus := value.Status
+	if command.Advertiser != nil {
+		value.Advertiser = strings.TrimSpace(*command.Advertiser)
+	}
+	if command.Content != nil {
+		value.Content = strings.TrimSpace(*command.Content)
+	}
+	if command.TargetURL != nil {
+		value.TargetURL = *command.TargetURL
+	}
+	if command.StartsAt != nil {
+		value.StartsAt = command.StartsAt.UTC()
+	}
+	if command.EndsAt != nil {
+		value.EndsAt = command.EndsAt.UTC()
+	}
+	if command.Status != nil {
+		value.Status = *command.Status
+	}
+	if !validStatus(value.Status) || !validText(value.Advertiser, 1, 200) || !validText(value.Content, 1, 1000) || !validHTTPSURL(value.TargetURL) || value.StartsAt.IsZero() || value.EndsAt.IsZero() || !value.StartsAt.Before(value.EndsAt) {
+		return Advertisement{}, ErrValidation
+	}
+	if command.Status != nil && !validTransition(previousStatus, value.Status) {
+		return Advertisement{}, ErrInvalidState
+	}
+	now := s.clock.Now()
+	if value.Status == StatusActive && (now.Before(value.StartsAt) || now.After(value.EndsAt)) {
+		return Advertisement{}, ErrValidation
+	}
+	if value.Status == StatusExpired && !now.After(value.EndsAt) {
+		return Advertisement{}, ErrValidation
+	}
+	if err := s.repository.Update(ctx, value); err != nil {
+		return Advertisement{}, err
+	}
+	return value, nil
+}
+
 func validText(value string, min, max int) bool {
 	n := len([]rune(strings.TrimSpace(value)))
 	return n >= min && n <= max
@@ -110,6 +172,22 @@ func validText(value string, min, max int) bool {
 func validStatus(value Status) bool {
 	return value == StatusDraft || value == StatusActive || value == StatusPaused || value == StatusExpired
 }
+func validTransition(from, to Status) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case StatusDraft:
+		return to == StatusActive
+	case StatusActive:
+		return to == StatusPaused || to == StatusExpired
+	case StatusPaused:
+		return to == StatusActive || to == StatusExpired
+	default:
+		return false
+	}
+}
+
 func validHTTPSURL(value string) bool {
 	if len(value) > 2048 || strings.TrimSpace(value) != value {
 		return false

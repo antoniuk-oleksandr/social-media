@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,13 +25,29 @@ func NewRepository(client *dynamodb.Client, tableName string) ad.Repository {
 	return &Repository{Client: client, TableName: tableName}
 }
 func (r *Repository) Create(ctx context.Context, value ad.Advertisement) error {
-	_, err := r.Client.PutItem(ctx, &dynamodb.PutItemInput{TableName: aws.String(r.TableName), Item: map[string]types.AttributeValue{
-		"adId": &types.AttributeValueMemberS{Value: value.ID}, "entityType": &types.AttributeValueMemberS{Value: value.Type}, "advertiser": &types.AttributeValueMemberS{Value: value.Advertiser}, "content": &types.AttributeValueMemberS{Value: value.Content}, "targetUrl": &types.AttributeValueMemberS{Value: value.TargetURL}, "startsAt": &types.AttributeValueMemberS{Value: value.StartsAt.Format("2006-01-02T15:04:05Z07:00")}, "endsAt": &types.AttributeValueMemberS{Value: value.EndsAt.Format("2006-01-02T15:04:05Z07:00")}, "startsAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.StartsAt.UnixMilli())}, "endsAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.EndsAt.UnixMilli())}, "status": &types.AttributeValueMemberS{Value: string(value.Status)}, "createdBy": &types.AttributeValueMemberS{Value: value.CreatedBy}, "createdAt": &types.AttributeValueMemberS{Value: value.CreatedAt.Format(time.RFC3339Nano)}, "createdAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.CreatedAtEpoch)},
-	}, ConditionExpression: aws.String("attribute_not_exists(adId)")})
+	_, err := r.Client.PutItem(ctx, putInput(r.TableName, value, "attribute_not_exists(adId)"))
 	if err != nil {
 		return ad.ErrDependencyUnavailable
 	}
 	return nil
+}
+
+func (r *Repository) Update(ctx context.Context, value ad.Advertisement) error {
+	_, err := r.Client.PutItem(ctx, putInput(r.TableName, value, "attribute_exists(adId)"))
+	if err != nil {
+		var conditionErr *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionErr) {
+			return ad.ErrNotFound
+		}
+		return ad.ErrDependencyUnavailable
+	}
+	return nil
+}
+
+func putInput(tableName string, value ad.Advertisement, condition string) *dynamodb.PutItemInput {
+	return &dynamodb.PutItemInput{TableName: aws.String(tableName), Item: map[string]types.AttributeValue{
+		"adId": &types.AttributeValueMemberS{Value: value.ID}, "entityType": &types.AttributeValueMemberS{Value: value.Type}, "advertiser": &types.AttributeValueMemberS{Value: value.Advertiser}, "content": &types.AttributeValueMemberS{Value: value.Content}, "targetUrl": &types.AttributeValueMemberS{Value: value.TargetURL}, "startsAt": &types.AttributeValueMemberS{Value: value.StartsAt.Format(time.RFC3339Nano)}, "endsAt": &types.AttributeValueMemberS{Value: value.EndsAt.Format(time.RFC3339Nano)}, "startsAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.StartsAt.UnixMilli())}, "endsAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.EndsAt.UnixMilli())}, "status": &types.AttributeValueMemberS{Value: string(value.Status)}, "createdBy": &types.AttributeValueMemberS{Value: value.CreatedBy}, "createdAt": &types.AttributeValueMemberS{Value: value.CreatedAt.Format(time.RFC3339Nano)}, "createdAtEpoch": &types.AttributeValueMemberN{Value: fmt.Sprint(value.CreatedAtEpoch)},
+	}, ConditionExpression: aws.String(condition)}
 }
 
 func (r *Repository) GetByID(ctx context.Context, id string) (ad.Advertisement, error) {
@@ -100,11 +117,11 @@ func (r *Repository) GetByID(ctx context.Context, id string) (ad.Advertisement, 
 	if err != nil {
 		return ad.Advertisement{}, ad.ErrDependencyUnavailable
 	}
-	starts, err := time.Parse(time.RFC3339, startsAt)
+	starts, err := time.Parse(time.RFC3339Nano, startsAt)
 	if err != nil {
 		return ad.Advertisement{}, ad.ErrDependencyUnavailable
 	}
-	ends, err := time.Parse(time.RFC3339, endsAt)
+	ends, err := time.Parse(time.RFC3339Nano, endsAt)
 	if err != nil {
 		return ad.Advertisement{}, ad.ErrDependencyUnavailable
 	}
