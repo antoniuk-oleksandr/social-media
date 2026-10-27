@@ -22,6 +22,19 @@ Resources:
           UNIQUES_TABLE: social-media-local-uniques
           REFRESH_TABLE: social-media-local-refresh-sessions
           JWT_ACCESS_SECRET: local-development-secret
+      Events:
+        Register:
+          Type: HttpApi
+          Properties: {Path: /api/v1/auth/register, Method: POST}
+        Login:
+          Type: HttpApi
+          Properties: {Path: /api/v1/auth/login, Method: POST}
+        Refresh:
+          Type: HttpApi
+          Properties: {Path: /api/v1/auth/refresh, Method: POST}
+        Logout:
+          Type: HttpApi
+          Properties: {Path: /api/v1/auth/logout, Method: POST}
 
   UsersFunction:
     Type: AWS::Serverless::Function
@@ -43,6 +56,13 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+      Events:
+        GetUser:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/users/{userId}", Method: GET}
+        UpdateUser:
+          Type: HttpApi
+          Properties: {Path: /api/v1/users/me, Method: PATCH}
 
   PostsFunction:
     Type: AWS::Serverless::Function
@@ -64,6 +84,16 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+      Events:
+        CreatePost:
+          Type: HttpApi
+          Properties: {Path: /api/v1/posts, Method: POST}
+        GetPost:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/posts/{postId}", Method: GET}
+        DeletePost:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/posts/{postId}", Method: DELETE}
 
   AdsFunction:
     Type: AWS::Serverless::Function
@@ -87,6 +117,22 @@ Resources:
           JWT_AUDIENCE: social-media-api
           ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
           ADS_CURSOR_KEY_ID: local
+      Events:
+        CreateAd:
+          Type: HttpApi
+          Properties: {Path: /api/v1/ads, Method: POST}
+        ListAds:
+          Type: HttpApi
+          Properties: {Path: /api/v1/ads, Method: GET}
+        GetAd:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/ads/{adId}", Method: GET}
+        UpdateAd:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/ads/{adId}", Method: PATCH}
+        DeleteAd:
+          Type: HttpApi
+          Properties: {Path: "/api/v1/ads/{adId}", Method: DELETE}
 
   FeedFunction:
     Type: AWS::Serverless::Function
@@ -113,3 +159,7 @@ Resources:
           JWT_AUDIENCE: social-media-api
           ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
           ADS_CURSOR_KEY_ID: local
+      Events:
+        Feed:
+          Type: HttpApi
+          Properties: {Path: /api/v1/feed, Method: GET}

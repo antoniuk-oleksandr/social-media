@@ -38,6 +38,9 @@ task can be reported complete.
 - Keep each Lambda composition root in one `func main`: register configuration, AWS clients, adapters, repositories, services, handlers, and routers directly with `fx.Provide`; populate the HTTP handler; start/stop Fx; then call `lambda.Start(algnhsa.New(...))`. Do not replace this documented shape with `http.ListenAndServe`, helper composition functions, or module-only wiring. Verify the gate with repository search for `fx.New`, `fx.Provide`, and `lambda.Start`, plus `go test -race ./...` and `go vet ./...`.
 - Consume every error. Never use `_ , data := foo()` or discard an error.
 - Preserve the documented authentication, validation, cursor, feed-ad, status, error, logging, testing, Terraform, SSM, and CI/CD contracts.
+- Public API changes must be covered by flow-based E2E tests when they affect
+  a user journey. E2E specs use Resty through SAM Local or the deployed API;
+  they must contain multiple related requests, not one endpoint call per spec.
 - Do not implement deferred product phases as part of an MVP task.
 
 ## Local infrastructure

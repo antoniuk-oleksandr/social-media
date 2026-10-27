@@ -1,18 +1,16 @@
 //go:build integration
 
-package feedintegration
+package integration
 
 import (
 	"context"
 	"fmt"
-	"testing"
 	"time"
 
 	addb "github.com/antoniuk-oleksandr/social-media/internal/ad/dynamodb"
 	feedfeature "github.com/antoniuk-oleksandr/social-media/internal/feed"
 	feeddb "github.com/antoniuk-oleksandr/social-media/internal/feed/dynamodb"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
-	"github.com/antoniuk-oleksandr/social-media/tests/integration/support"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -20,39 +18,24 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var feedSuite *support.DynamoDBSuite
 var feedPostsTable string
 var feedAdsTable string
 var feedUsersTable string
 
-type integrationClock struct{ now time.Time }
+type feedIntegrationClock struct{ now time.Time }
 
-func (c integrationClock) Now() time.Time { return c.now }
+func (c feedIntegrationClock) Now() time.Time { return c.now }
 
-func TestFeedIntegration(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Feed integration suite")
-}
-
-var _ = BeforeSuite(func() {
+func setupFeedTables() {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	var err error
-	feedSuite, err = support.StartDynamoDB(ctx, "tests-feed")
-	Expect(err).NotTo(HaveOccurred())
 	feedPostsTable = fmt.Sprintf("tests-feed-posts-%d", time.Now().UTC().UnixNano())
 	feedAdsTable = fmt.Sprintf("tests-feed-ads-%d", time.Now().UTC().UnixNano())
 	feedUsersTable = fmt.Sprintf("tests-feed-users-%d", time.Now().UTC().UnixNano())
 	Expect(createFeedPostsTable(ctx)).To(Succeed())
 	Expect(createFeedAdsTable(ctx)).To(Succeed())
 	Expect(createFeedUsersTable(ctx)).To(Succeed())
-})
-
-var _ = AfterSuite(func() {
-	if feedSuite != nil {
-		Expect(feedSuite.Close(context.Background())).To(Succeed())
-	}
-})
+}
 
 var _ = BeforeEach(func() {
 	ctx := context.Background()
@@ -72,7 +55,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 		service := feedfeature.NewService(
 			feeddb.NewPostRepository(feedSuite.Client, feedPostsTable),
 			feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)),
-			integrationClock{now: now}, "integration-key", "v1",
+			feedIntegrationClock{now: now}, "integration-key", "v1",
 		)
 		first, err := service.Build(ctx, feedfeature.Query{Limit: 20, UserID: "user-a"})
 		Expect(err).NotTo(HaveOccurred())
@@ -92,7 +75,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 		service := feedfeature.NewService(
 			feeddb.NewPostRepository(feedSuite.Client, feedPostsTable),
 			feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)),
-			integrationClock{now: now}, "integration-key", "v1",
+			feedIntegrationClock{now: now}, "integration-key", "v1",
 		)
 		first, err := service.Build(ctx, feedfeature.Query{Limit: 20, UserID: "user-a"})
 		Expect(err).NotTo(HaveOccurred())
@@ -123,7 +106,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 
 		posts := feeddb.NewPostRepository(feedSuite.Client, feedPostsTable)
 		ads := feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable))
-		service := feedfeature.NewService(posts, ads, integrationClock{now: now}, "integration-key", "v1")
+		service := feedfeature.NewService(posts, ads, feedIntegrationClock{now: now}, "integration-key", "v1")
 		var cursor string
 		seen := map[string]bool{}
 		seenAds := map[string]bool{}
@@ -160,7 +143,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 		service := feedfeature.NewService(
 			feeddb.NewPostRepository(feedSuite.Client, feedPostsTable),
 			feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)),
-			integrationClock{now: now}, "integration-key", "v1",
+			feedIntegrationClock{now: now}, "integration-key", "v1",
 		)
 		result, err := service.Build(ctx, feedfeature.Query{Limit: 20})
 		Expect(err).NotTo(HaveOccurred())
@@ -182,7 +165,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 		service := feedfeature.NewService(
 			feeddb.NewPostRepository(feedSuite.Client, feedPostsTable),
 			feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)),
-			integrationClock{now: now}, "integration-key", "v1",
+			feedIntegrationClock{now: now}, "integration-key", "v1",
 			userdb.NewConfiguredRepository(feedSuite.Client, feedUsersTable, "unused-uniques-table"),
 		)
 
@@ -197,7 +180,7 @@ var _ = Describe("feed DynamoDB persistence", func() {
 	})
 
 	It("translates a DynamoDB dependency failure to the feed domain error", func() {
-		service := feedfeature.NewService(feeddb.NewPostRepository(feedSuite.Client, "missing-feed-table"), feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)), integrationClock{now: time.Now().UTC()}, "key", "v1")
+		service := feedfeature.NewService(feeddb.NewPostRepository(feedSuite.Client, "missing-feed-table"), feeddb.NewAdRepository(addb.NewRepository(feedSuite.Client, feedAdsTable)), feedIntegrationClock{now: time.Now().UTC()}, "key", "v1")
 		_, err := service.Build(context.Background(), feedfeature.Query{})
 		Expect(err).To(MatchError(feedfeature.ErrDependencyUnavailable))
 	})

@@ -232,15 +232,26 @@ persistent Docker workspace by default, so simultaneous edits can conflict.
 
 Compose DynamoDB Local is for manual development. Integration tests must create
 and own isolated Testcontainers and tables; they must not rely on a
-developer-managed Compose service. Use one DynamoDB Local Testcontainer per
-integration suite or Go test package, shared by all specs in that suite. Start
-it in `BeforeSuite`, terminate it in `AfterSuite`, and isolate specs with table
-names or cleanup. Never create one container per test case.
+developer-managed Compose service. The repository uses one `tests/integration`
+Go package, with exactly one DynamoDB Local Testcontainer shared by all specs.
+Start it in `BeforeSuite`, terminate it in `AfterSuite`, and isolate specs with
+table names or cleanup. Never create one container per test or split the
+integration suite into multiple packages.
 
 Keep deterministic data in `tests/fixtures/`. Keep Testcontainers lifecycle,
 DynamoDB clients, table setup/reset, and shared assertions in
 `tests/integration/support/`. Keep Resty client helpers in
 `tests/e2e/support/`.
+
+Run local public-route E2E tests with `just e2e`. The command starts SAM
+Local and one disposable DynamoDB Local Testcontainer for the entire suite;
+it does not use AWS resources or the Compose database.
+
+The E2E suite is organized around multi-request journeys rather than
+individual endpoint checks. Add or extend a flow for authentication, profile
+updates, posts and feed, administrator ad CRUD, or mixed feed behavior when a
+feature changes that journey. Keep the shared SAM and DynamoDB environment
+for the whole suite.
 
 ## Security boundaries
 

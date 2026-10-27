@@ -134,13 +134,17 @@ Lambda functions use `provided.al2023`, `arm64`, handler `bootstrap`, 256 MB mem
 
 SSM Parameter Store stores signing keys and other production secrets as `SecureString` values. Go configuration reads environment variables and resolves configured SSM parameter names during cold-start initialization. Feature packages receive typed configuration through constructors.
 
-GitHub Actions runs tests, coverage enforcement, static analysis, ARM64 builds, and ZIP packaging. Terraform owns infrastructure lifecycle. GitHub Actions deploys compiled Lambda ZIPs to already-created functions using AWS OIDC and the narrowly scoped deployment role.
+GitHub Actions runs tests, coverage enforcement, static analysis, ARM64 builds, and ZIP packaging. On pushes to `dev`, it runs a complete Terraform plan and apply using AWS OIDC, deploying both infrastructure changes and all packaged Lambda functions. Terraform remains the source of truth for the full AWS stack.
 
 ## Testing and coverage
 
 - Ginkgo and Gomega: unit tests for domain and application packages.
 - Testcontainers with DynamoDB Local or an isolated AWS environment: repository integration tests.
-- Resty: E2E tests against the deployed development API.
+- Resty: flow-based E2E tests through the deployed development API or local
+  SAM Local. E2E scenarios must cover multi-request journeys such as
+  registration/authentication, profile updates, post-to-feed behavior,
+  administrator advertisement CRUD, and mixed feeds; they must not be one
+  isolated test per endpoint.
 - Minimum 90% combined statement coverage for the complete Go project (`./...`).
 - Handler coverage is reported separately; integration, E2E, Lambda bootstrap, generated code, and Terraform are outside the 90% threshold.
 

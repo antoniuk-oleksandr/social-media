@@ -12,7 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/testcontainers/testcontainers-go"
 	tcdynamodb "github.com/testcontainers/testcontainers-go/modules/dynamodb"
+	"github.com/testcontainers/testcontainers-go/network"
 )
 
 type DynamoDBSuite struct {
@@ -24,7 +26,21 @@ type DynamoDBSuite struct {
 }
 
 func StartDynamoDB(ctx context.Context, prefix string) (*DynamoDBSuite, error) {
-	container, err := runDynamoDB(ctx)
+	return startDynamoDB(ctx, prefix)
+}
+
+// StartDynamoDBOnNetwork starts DynamoDB Local on an existing Docker network.
+// It is used by local SAM E2E tests so Lambda containers can resolve the
+// database through the stable "dynamodb-local" network alias.
+func StartDynamoDBOnNetwork(ctx context.Context, prefix, networkName string) (*DynamoDBSuite, error) {
+	return startDynamoDB(ctx, prefix,
+		network.WithNetworkName([]string{"dynamodb-local"}, networkName),
+		testcontainers.WithCmdArgs("-sharedDb"),
+	)
+}
+
+func startDynamoDB(ctx context.Context, prefix string, options ...testcontainers.ContainerCustomizer) (*DynamoDBSuite, error) {
+	container, err := runDynamoDB(ctx, options...)
 	if err != nil {
 		return nil, fmt.Errorf("start DynamoDB Local container: %w", err)
 	}
@@ -42,8 +58,13 @@ func StartDynamoDB(ctx context.Context, prefix string) (*DynamoDBSuite, error) {
 	}
 	suffix := time.Now().UTC().Format("20060102-150405.000000000")
 	suite := &DynamoDBSuite{
-		Container:    container,
-		Client:       dynamodb.NewFromConfig(cfg),
+		Container: container,
+		// DynamoDB Local emits checksum headers that do not match the response
+		// body expected by the AWS SDK. Disable validation only for this local
+		// Testcontainers client; production AWS clients keep validation enabled.
+		Client: dynamodb.NewFromConfig(cfg, func(options *dynamodb.Options) {
+			options.DisableValidateResponseChecksum = true
+		}),
 		UsersTable:   fmt.Sprintf("%s-users-%s", prefix, suffix),
 		UniquesTable: fmt.Sprintf("%s-uniques-%s", prefix, suffix),
 		RefreshTable: fmt.Sprintf("%s-refresh-%s", prefix, suffix),
@@ -74,13 +95,13 @@ func dynamoDBEndpoint(hostPort string) string {
 	return (&url.URL{Scheme: "http", Host: hostPort}).String()
 }
 
-func runDynamoDB(ctx context.Context) (container *tcdynamodb.DynamoDBContainer, err error) {
+func runDynamoDB(ctx context.Context, options ...testcontainers.ContainerCustomizer) (container *tcdynamodb.DynamoDBContainer, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("start DynamoDB Local container: %v", recovered)
 		}
 	}()
-	return tcdynamodb.Run(ctx, "amazon/dynamodb-local:2.6.1", tcdynamodb.WithDisableTelemetry())
+	return tcdynamodb.Run(ctx, "amazon/dynamodb-local:2.6.1", append(options, tcdynamodb.WithDisableTelemetry())...)
 }
 
 func CreateTable(ctx context.Context, client *dynamodb.Client, tableName, hashKey string) error {

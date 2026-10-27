@@ -25,6 +25,11 @@ func LoadAWSConfig(ctx context.Context) (aws.Config, error) {
 func NewDynamoDBClient(cfg aws.Config) *dynamodb.Client {
 	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
 		cfg.BaseEndpoint = &endpoint
+		return dynamodb.NewFromConfig(cfg, func(options *dynamodb.Options) {
+			// DynamoDB Local may emit an invalid CRC32 response header. Keep
+			// checksum validation enabled for real AWS clients.
+			options.DisableValidateResponseChecksum = true
+		})
 	}
 	return dynamodb.NewFromConfig(cfg)
 }

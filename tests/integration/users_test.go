@@ -1,6 +1,6 @@
 //go:build integration
 
-package userintegration
+package integration
 
 import (
 	"context"
@@ -8,13 +8,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
-	"testing"
 	"time"
 
 	platformclock "github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
 	userfeature "github.com/antoniuk-oleksandr/social-media/internal/user"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
-	"github.com/antoniuk-oleksandr/social-media/tests/integration/support"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -22,28 +20,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-var userIntegrationSuite *support.DynamoDBSuite
-
-func TestUserIntegration(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "User integration suite")
-}
-
-var _ = BeforeSuite(func() {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	var err error
-	userIntegrationSuite, err = support.StartDynamoDB(ctx, "tests-users-by-id")
-	Expect(err).NotTo(HaveOccurred(), "DynamoDB integration suite must start")
-	setupAdsListTable()
-})
-
-var _ = AfterSuite(func() {
-	if userIntegrationSuite != nil {
-		Expect(userIntegrationSuite.Close(context.Background())).To(Succeed())
-	}
-})
 
 var _ = Describe("GET user by UUIDv7 persistence", func() {
 	It("reads a String-keyed user and returns only its public profile", func() {

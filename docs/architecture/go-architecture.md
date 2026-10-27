@@ -875,7 +875,7 @@ The pipeline must:
 - Use Terraform as the source of truth for AWS infrastructure.
 - Use GitHub Actions with AWS OIDC to deploy Lambda ZIPs to Terraform-managed functions.
 
-Terraform manages Lambda functions, configuration, API Gateway resources, IAM roles, DynamoDB tables, log groups, and related infrastructure. GitHub Actions may use `aws lambda update-function-code` only to deploy the compiled application ZIP to an already-created Terraform-managed Lambda function.
+Terraform manages Lambda functions, configuration, API Gateway resources, IAM roles, DynamoDB tables, log groups, and related infrastructure. On pushes to `dev`, GitHub Actions builds all Lambda ZIPs and applies the complete Terraform plan, so infrastructure and Lambda code are deployed together.
 
 Every public endpoint must be registered in all deployment layers: the feature
 router, the Lambda composition root, and an `aws_apigatewayv2_route` in
@@ -1058,7 +1058,7 @@ jobs:
 
 ### Multi-Lambda workflow rules
 
-For the complete application, use a build matrix with one entry per command and archive name. Terraform creates and configures each corresponding Lambda function. The deployment job updates only the function code using the matching ZIP archive.
+For the complete application, build one ZIP archive per command and pass all archives to the complete Terraform plan. Terraform creates, configures, and updates each corresponding Lambda function together with its infrastructure.
 
 Each Lambda function must be configured with:
 
@@ -1147,10 +1147,10 @@ build ARM64 Lambda archives
     ↓
 AWS OIDC-authenticated Lambda code deployment
     ↓
-Terraform-managed infrastructure remains unchanged
+Terraform-managed infrastructure is applied together with the Lambda archives
 ```
 
-Terraform plans are previews and must be reviewed before infrastructure changes are applied. Infrastructure applies are handled by the Terraform workflow. The application deployment job uses `aws lambda update-function-code` only for code artifacts and does not modify infrastructure configuration.
+Terraform plans are previews and must be reviewed before infrastructure changes are applied. On `dev` pushes, the deployment job applies the complete Terraform plan, including infrastructure and Lambda code artifacts. No separate Lambda-only deployment path is used.
 
 ### Unit tests: Ginkgo and Gomega
 
@@ -1226,17 +1226,19 @@ Integration tests should verify:
 
 Integration tests should use isolated tables, deterministic test data, and explicit container lifecycle management. They should not depend on developer credentials or an already-running local database.
 
-Use one Testcontainers instance per integration test suite or Go test package,
-not one container per test case. Start the DynamoDB Local container once in
-Ginkgo `BeforeSuite`, create the required client and tables once, and terminate
-the container once in `AfterSuite`. All specs in that suite reuse the same
-endpoint. Tests remain independent by using isolated table names, deterministic
-keys, and cleanup/reset operations between specs. Do not call
-`GenericContainer`, `Run`, or `Terminate` from an individual `It` block.
+The repository integration suite is the single `tests/integration` Go package.
+Start exactly one DynamoDB Local Testcontainers instance in its Ginkgo
+`BeforeSuite`, create the required client and tables once, and terminate the
+container once in `AfterSuite`. All integration specs reuse that endpoint.
+Tests remain independent by using isolated table names, deterministic keys,
+and cleanup/reset operations between specs. Do not call `GenericContainer`,
+`Run`, or `Terminate` from an individual `It` block. The support package may
+test lifecycle error handling, but must not start a second normal integration
+database container.
 
-If integration packages run in parallel, each package may own one container;
-the number of containers must scale with suites/packages, never with the
-number of test cases. Do not enable persistent Testcontainers reuse in CI;
+Do not split repository integration specs into multiple Go packages or run
+them in parallel: one `just integration` invocation must own one DynamoDB
+Local container. Do not enable persistent Testcontainers reuse in CI;
 suite-scoped lifecycle plus explicit table isolation prevents stale state.
 
 Fixtures and support code have separate responsibilities:
@@ -1272,9 +1274,15 @@ tests/
         └── resty.go
 ```
 
-### End-to-end tests: Resty
+### End-to-end tests: Resty and SAM Local
 
 End-to-end tests should exercise the deployed or locally assembled HTTP API through its public routes. Use Resty as the HTTP client.
+
+Run the local E2E suite with `just e2e`. It starts SAM Local for the public
+HTTP routes, builds x86_64 Lambda bootstrap artifacts under `build/`, and uses
+one suite-scoped DynamoDB Local Testcontainer with isolated tables. The SAM
+Lambda containers and database are disposable; local E2E tests must never use
+AWS or developer-managed Compose data.
 
 E2E tests should verify complete user flows:
 
@@ -1286,15 +1294,18 @@ E2E tests should verify complete user flows:
 - Verify the 20-post-plus-1-ad and partial-feed rules
 - Verify authorization failures and validation responses
 
+E2E tests are flow tests, not endpoint smoke tests. A new public endpoint must
+extend the journey it participates in or add a multi-request journey. Keep
+separate flow files where useful, but share one SAM Local process and one
+suite-scoped DynamoDB Local Testcontainer for the complete E2E run.
+
 The E2E environment should provide its own configuration, tables, secrets, and test users. Tests must not run against production data.
 
 Example layout:
 
 ```text
-tests/e2e/auth_test.go
-tests/e2e/posts_test.go
-tests/e2e/feed_test.go
-tests/e2e/ads_test.go
+tests/e2e/e2e_test.go
+tests/e2e/support/environment.go
 ```
 
 ### Lambda smoke tests

@@ -48,10 +48,9 @@ accidental second copy of the development resources.
 
 The workflow in `.github/workflows/ci-cd.yml` runs tests, the 90% coverage
 gate, integration tests, Terraform validation, ARM64 Lambda packaging, and a
-targeted Terraform plan/apply for the Lambda function on pushes to `dev`. It
-uses GitHub OIDC rather than AWS access keys. It does not provision or modify
-API Gateway, DynamoDB, S3, IAM, SSM, or CloudWatch resources during code
-deployment.
+complete Terraform plan/apply on pushes to `dev`. It uses GitHub OIDC rather
+than AWS access keys and deploys all Terraform-managed infrastructure together
+with all packaged Lambda functions.
 
 Configure these variables in the GitHub `dev` environment:
 
