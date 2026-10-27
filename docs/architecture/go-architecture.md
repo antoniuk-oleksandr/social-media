@@ -1181,7 +1181,7 @@ Use fakes or in-memory adapters for service tests. Do not start containers in un
 Test feed rules and invariants without AWS, HTTP, or Lambda:
 
 - 20 posts plus 1 ad
-- Fewer than 20 final-page posts without an additional ad
+- Fewer than 20 final-page posts plus 1 eligible ad when available; no ad only when the feed is empty or no eligible ad exists
 - No eligible ads
 - Empty feed
 - Invalid cursor

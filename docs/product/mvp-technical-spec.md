@@ -69,7 +69,7 @@ Malformed JSON and invalid query syntax return `400`. Valid JSON with invalid fi
 The feed is ordered by descending `(createdAt, postId)`. `limit` is the maximum number of organic posts, not the total number of response items.
 
 - A page with 20 posts may contain 20 posts and 1 ad.
-- A page with fewer than 20 remaining posts contains those posts and no additional ad merely because the page ended.
+- A page with fewer than 20 remaining posts contains those posts and one eligible ad when one exists.
 - One ad is inserted after each completed block of 20 organic posts across the pagination session.
 - If no eligible ad exists, only posts are returned.
 - Ads do not consume the organic post limit.

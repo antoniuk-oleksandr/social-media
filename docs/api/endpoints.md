@@ -24,7 +24,7 @@ Common error response:
 
 ## Phase 1: MVP
 
-The MVP includes authentication, users, posts, ads, and the primary mixed feed. The feed returns up to 20 posts followed by 1 eligible ad when one exists.
+The MVP includes authentication, users, posts, ads, and the primary mixed feed. The feed returns up to 20 posts followed by 1 eligible ad when one exists, including on an incomplete final page.
 
 ### Authentication
 
@@ -282,13 +282,13 @@ Authentication: optional for MVP
 
 The feed is the exception to the admin-only ads resource rule: regular users may receive eligible advertisements as feed items, but they cannot call any endpoint in the /api/v1/ads resource group.
 
-Query: limit (default 20, max 50 organic posts), cursor. The feed may return one additional ad after a completed block of 20 organic posts.
+Query: limit (default 20, max 50 organic posts), cursor. The feed may return one additional ad after a completed block of 20 organic posts and on any non-empty incomplete page.
 
 Composition rules:
 
 1. Read posts in deterministic reverse chronological order using createdAtEpoch descending.
 2. Insert 1 eligible active ad after every completed block of 20 organic posts across the pagination session.
-3. If fewer than 20 posts remain on the final page, return those posts without an additional ad merely because the page ended.
+3. If fewer than 20 posts remain on a non-empty final page, return those posts followed by 1 eligible ad when one exists.
 4. If no eligible ad exists, return the available posts without failing.
 5. Every entity must have type set to post or ad.
 6. The opaque cursor must preserve a snapshot timestamp and the last evaluated post/ad keys to prevent duplicates or skipped entities.
