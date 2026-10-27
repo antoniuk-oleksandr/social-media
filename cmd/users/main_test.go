@@ -104,7 +104,7 @@ var _ = Describe("Users Lambda composition graph", func() {
 	})
 
 	It("keeps users Lambda JWT and table environment names in Terraform parity", func() {
-		content, err := os.ReadFile("../../infra/dev/lambda.tf")
+		content, err := os.ReadFile("../../infra/modules/social-media/lambda.tf")
 		Expect(err).NotTo(HaveOccurred())
 		usersStart := strings.Index(string(content), `resource "aws_lambda_function" "users"`)
 		Expect(usersStart).To(BeNumerically(">=", 0))
