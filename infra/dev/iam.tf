@@ -428,10 +428,13 @@ resource "aws_iam_role" "ads_lambda" {
 
 data "aws_iam_policy_document" "ads_lambda" {
   statement {
-    sid       = "WriteApplicationLogs"
-    effect    = "Allow"
-    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.ads.arn}:*"]
+    sid     = "WriteApplicationLogs"
+    effect  = "Allow"
+    actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = [
+      "${aws_cloudwatch_log_group.ads.arn}:*",
+      "${aws_cloudwatch_log_group.feed.arn}:*"
+    ]
   }
   statement {
     sid    = "CreateAds"
@@ -448,6 +451,18 @@ data "aws_iam_policy_document" "ads_lambda" {
       aws_dynamodb_table.ads.arn,
       "${aws_dynamodb_table.ads.arn}/index/*"
     ]
+  }
+  statement {
+    sid       = "ReadFeedPosts"
+    effect    = "Allow"
+    actions   = ["dynamodb:DescribeTable", "dynamodb:Query"]
+    resources = [aws_dynamodb_table.posts.arn, "${aws_dynamodb_table.posts.arn}/index/*"]
+  }
+  statement {
+    sid       = "ReadFeedUsers"
+    effect    = "Allow"
+    actions   = ["dynamodb:BatchGetItem", "dynamodb:DescribeTable", "dynamodb:GetItem"]
+    resources = [aws_dynamodb_table.users.arn]
   }
   statement {
     sid       = "ReadJWTSigningKey"

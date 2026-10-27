@@ -29,6 +29,10 @@ ads-build:
     mkdir -p build/ads
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/ads/bootstrap ./cmd/ads
 
+feed-build:
+    mkdir -p build/feed
+    AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 {{go_local}} go build -trimpath -ldflags='-s -w' -o build/feed/bootstrap ./cmd/feed
+
 lambda-package:
     bash scripts/package_lambdas.sh
 
@@ -45,6 +49,9 @@ posts-request method path body='' headers='{"content-type":"application/json"}':
 
 ads-request method path body='' headers='{"content-type":"application/json"}': local-up local-init ads-build
     SAM_FUNCTION=AdsFunction python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
+
+feed-request method path body='' headers='{"content-type":"application/json"}': local-up local-init feed-build
+    SAM_FUNCTION=FeedFunction python3 infra/local/invoke.py '{{method}}' '{{path}}' '{{body}}' '{{headers}}'
 
 terraform-bootstrap-dev:
     set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap init -input=false
