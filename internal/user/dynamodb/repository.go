@@ -18,6 +18,10 @@ type API interface {
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 }
 
+type batchAPI interface {
+	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
+}
+
 type updateAPI interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
@@ -37,7 +41,7 @@ func NewRepository(client *dynamodb.Client, tableName, uniqueTableName string) u
 	return &Repository{Client: client, TableName: tableName, UniqueTableName: uniqueTableName, Clock: platformclock.Real{}}
 }
 
-func NewConfiguredRepository(client *dynamodb.Client, usersTable, uniqueTable string) user.Repository {
+func NewConfiguredRepository(client *dynamodb.Client, usersTable, uniqueTable string) *Repository {
 	return &Repository{Client: client, TableName: usersTable, UniqueTableName: uniqueTable, Clock: platformclock.Real{}}
 }
 
@@ -57,22 +61,69 @@ func (r *Repository) GetByID(ctx context.Context, id string) (user.User, error) 
 	if len(result.Item) == 0 {
 		return user.User{}, user.ErrNotFound
 	}
-	record := UserRecord{
-		ID:           attributeString(result.Item, "userId"),
-		Username:     attributeString(result.Item, "username"),
-		Email:        attributeString(result.Item, "email"),
-		PasswordHash: attributeString(result.Item, "passwordHash"),
-		DisplayName:  attributeString(result.Item, "displayName"),
-		Role:         attributeString(result.Item, "role"),
-		Status:       attributeString(result.Item, "status"),
-		CreatedAt:    attributeString(result.Item, "createdAt"),
-		UpdatedAt:    attributeString(result.Item, "updatedAt"),
-	}
-	value, err := toDomain(record)
+	value, err := mapUser(result.Item)
 	if err != nil {
 		return user.User{}, user.ErrDependencyUnavailable
 	}
 	return value, nil
+}
+
+func (r *Repository) GetByIDs(ctx context.Context, ids []string) (map[string]user.User, error) {
+	client, ok := r.Client.(batchAPI)
+	if !ok {
+		return nil, user.ErrDependencyUnavailable
+	}
+	keys := make([]map[string]types.AttributeValue, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		parsed, err := uuid.Parse(id)
+		if err != nil || parsed.Version() != 7 || parsed.String() != id {
+			return nil, user.ErrInvalidID
+		}
+		seen[id] = struct{}{}
+		keys = append(keys, map[string]types.AttributeValue{"userId": &types.AttributeValueMemberS{Value: id}})
+	}
+	result := make(map[string]user.User, len(keys))
+	for start := 0; start < len(keys); start += 100 {
+		end := start + 100
+		if end > len(keys) {
+			end = len(keys)
+		}
+		requestItems := map[string]types.KeysAndAttributes{r.TableName: {Keys: keys[start:end], ConsistentRead: aws.Bool(true)}}
+		for len(requestItems) > 0 {
+			output, err := client.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{RequestItems: requestItems})
+			if err != nil {
+				return nil, user.ErrDependencyUnavailable
+			}
+			for _, item := range output.Responses[r.TableName] {
+				value, err := mapUser(item)
+				if err != nil {
+					return nil, user.ErrDependencyUnavailable
+				}
+				result[value.ID] = value
+			}
+			requestItems = output.UnprocessedKeys
+		}
+	}
+	return result, nil
+}
+
+func mapUser(item map[string]types.AttributeValue) (user.User, error) {
+	record := UserRecord{
+		ID:           attributeString(item, "userId"),
+		Username:     attributeString(item, "username"),
+		Email:        attributeString(item, "email"),
+		PasswordHash: attributeString(item, "passwordHash"),
+		DisplayName:  attributeString(item, "displayName"),
+		Role:         attributeString(item, "role"),
+		Status:       attributeString(item, "status"),
+		CreatedAt:    attributeString(item, "createdAt"),
+		UpdatedAt:    attributeString(item, "updatedAt"),
+	}
+	return toDomain(record)
 }
 
 func (r *Repository) UpdateProfile(ctx context.Context, command user.UpdateProfileCommand) (user.User, error) {

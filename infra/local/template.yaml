@@ -87,3 +87,29 @@ Resources:
           JWT_AUDIENCE: social-media-api
           ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
           ADS_CURSOR_KEY_ID: local
+
+  FeedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
+      Handler: bootstrap
+      CodeUri: ../../build/feed/
+      Timeout: 10
+      MemorySize: 256
+      Environment:
+        Variables:
+          AWS_REGION: us-east-1
+          APP_ENV: local
+          DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+          POSTS_TABLE: social-media-local-posts
+          USERS_TABLE: social-media-local-users
+          UNIQUES_TABLE: social-media-local-uniques
+          ADS_TABLE: social-media-local-ads
+          JWT_KID: local
+          JWT_ACCESS_SECRET: local-development-secret
+          JWT_ISSUER: social-media-api
+          JWT_AUDIENCE: social-media-api
+          ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
+          ADS_CURSOR_KEY_ID: local

@@ -72,6 +72,12 @@ variable "ads_lambda_package_path" {
   default     = "../../build/ads-lambda.zip"
 }
 
+variable "feed_lambda_package_path" {
+  type        = string
+  description = "Path to the prebuilt feed Lambda ZIP, relative to this directory."
+  default     = "../../build/feed-lambda.zip"
+}
+
 variable "jwt_signing_key_parameter" {
   type    = string
   default = "/social-media/dev/auth/jwt-signing-key"

@@ -197,7 +197,7 @@ Posts and ads remain in separate tables. The feed Lambda returns one typed list:
       "hasMore": true
     }
 
-The feed algorithm reads up to 20 posts in reverse chronological order and inserts one eligible ad only after a completed block of 20 organic posts. If fewer than 20 posts remain on the final page, it returns those posts without an additional ad merely because the page ended. Ads are not copied into the posts table.
+The feed algorithm reads up to 20 posts in reverse chronological order and inserts one eligible ad after a completed block of 20 organic posts. If fewer than 20 posts remain on a non-empty final page, it returns those posts followed by one eligible ad when one exists. An empty feed has no ad. Ads are not copied into the posts table.
 
 ---
 

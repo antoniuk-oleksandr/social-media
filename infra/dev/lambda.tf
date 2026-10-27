@@ -130,3 +130,37 @@ resource "aws_lambda_function" "ads" {
   }
   depends_on = [aws_iam_role_policy.ads_lambda]
 }
+
+resource "aws_cloudwatch_log_group" "feed" {
+  name              = "/aws/lambda/${local.feed_function}"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_lambda_function" "feed" {
+  function_name    = local.feed_function
+  role             = aws_iam_role.ads_lambda.arn
+  runtime          = var.lambda_runtime
+  architectures    = [var.lambda_architecture]
+  handler          = "bootstrap"
+  filename         = var.feed_lambda_package_path
+  source_code_hash = filebase64sha256(var.feed_lambda_package_path)
+  memory_size      = var.lambda_memory_mb
+  timeout          = var.lambda_timeout_seconds
+
+  environment {
+    variables = {
+      APP_ENV                     = var.environment
+      JWT_KID                     = var.jwt_active_kid
+      JWT_ISSUER                  = var.jwt_issuer
+      JWT_AUDIENCE                = var.jwt_audience
+      JWT_ACCESS_SECRET_PARAMETER = aws_ssm_parameter.jwt_signing_key.name
+      ADS_CURSOR_KEY_PARAMETER    = aws_ssm_parameter.ads_cursor_signing_key.name
+      ADS_CURSOR_KEY_ID           = var.jwt_active_kid
+      ADS_TABLE                   = aws_dynamodb_table.ads.name
+      POSTS_TABLE                 = aws_dynamodb_table.posts.name
+      USERS_TABLE                 = aws_dynamodb_table.users.name
+      LOG_LEVEL                   = "info"
+    }
+  }
+  depends_on = [aws_iam_role_policy.ads_lambda]
+}

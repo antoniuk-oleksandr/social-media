@@ -91,7 +91,7 @@ The mixed feed is the primary MVP feature and must be implemented and tested bef
   Ads should use `"type": "ad"` and include ad-specific fields such as `advertiser` and `targetUrl`.
 - Sort feed entities by creation time descending.
 - Return up to 20 posts followed by 1 eligible active ad when an ad exists.
-- If fewer than 20 posts remain on the final page, return the remaining posts without inserting an additional ad merely because the page ended.
+- If fewer than 20 posts remain on a non-empty final page, return those posts followed by 1 eligible ad when one exists; an empty feed has no ad.
 - If no eligible ads exist, return the available posts without failing the request.
 - Support cursor-based pagination so clients can request the next section of the feed.
 - Keep the ordering deterministic for the same cursor and data snapshot.
@@ -181,7 +181,7 @@ The MVP is complete when:
 4. Protected endpoints enforce token validity and role-based authorization.
 5. The MVP supports creating and retrieving active advertisements.
 6. `GET /feed` returns posts and ads in one typed list.
-7. The feed returns 20 posts plus 1 ad after a completed block of 20 organic posts; an incomplete final page returns fewer posts without an additional ad.
+7. The feed returns 20 posts plus 1 ad after a completed block of 20 organic posts; a non-empty incomplete final page includes 1 eligible ad when available, while an empty feed has no ad.
 8. Pagination does not duplicate or silently skip feed entities.
 9. Missing ads and empty datasets are handled gracefully.
 10. The Go service runs as Lambda handlers behind API Gateway and persists data in DynamoDB.

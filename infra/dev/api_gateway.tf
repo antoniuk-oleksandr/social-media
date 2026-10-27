@@ -35,6 +35,20 @@ resource "aws_apigatewayv2_integration" "ads" {
   payload_format_version = "2.0"
 }
 
+resource "aws_apigatewayv2_integration" "feed" {
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.feed.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "feed" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /api/v1/feed"
+  target    = "integrations/${aws_apigatewayv2_integration.feed.id}"
+}
+
 resource "aws_apigatewayv2_route" "ads_create" {
   api_id    = aws_apigatewayv2_api.http.id
   route_key = "POST /api/v1/ads"
@@ -145,6 +159,14 @@ resource "aws_lambda_permission" "api_gateway_posts" {
   statement_id  = "AllowAPIGatewayInvokePosts"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.posts.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
+}
+
+resource "aws_lambda_permission" "api_gateway_feed" {
+  statement_id  = "AllowAPIGatewayInvokeFeed"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.feed.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*"
 }
