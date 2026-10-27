@@ -17,10 +17,10 @@ func TestFeedTerraformContract(t *testing.T) {
 var _ = Describe("feed deployment contract", func() {
 	var lambda, iam string
 	BeforeEach(func() {
-		lambdaBytes, readErr := os.ReadFile("lambda.tf")
+		lambdaBytes, readErr := os.ReadFile("../modules/social-media/lambda.tf")
 		Expect(readErr).NotTo(HaveOccurred())
 		lambda = string(lambdaBytes)
-		iamBytes, readErr := os.ReadFile("iam.tf")
+		iamBytes, readErr := os.ReadFile("../modules/social-media/iam.tf")
 		Expect(readErr).NotTo(HaveOccurred())
 		iam = string(iamBytes)
 	})

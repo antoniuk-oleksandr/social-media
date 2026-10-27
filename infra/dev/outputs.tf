@@ -1,39 +1,39 @@
 output "api_endpoint" {
-  value = aws_apigatewayv2_api.http.api_endpoint
+  value = module.social_media.api_endpoint
 }
 
 output "auth_function_name" {
-  value = aws_lambda_function.auth.function_name
+  value = module.social_media.auth_function_name
 }
 
 output "users_function_name" {
-  value = aws_lambda_function.users.function_name
+  value = module.social_media.users_function_name
 }
 
 output "users_table_name" {
-  value = aws_dynamodb_table.users.name
+  value = module.social_media.users_table_name
 }
 
 output "uniques_table_name" {
-  value = aws_dynamodb_table.uniques.name
+  value = module.social_media.uniques_table_name
 }
 
 output "refresh_sessions_table_name" {
-  value = aws_dynamodb_table.refresh_sessions.name
+  value = module.social_media.refresh_sessions_table_name
 }
 
 output "media_bucket_name" {
-  value = aws_s3_bucket.media.bucket
+  value = module.social_media.media_bucket_name
 }
 
 output "jwt_signing_key_parameter" {
-  value = aws_ssm_parameter.jwt_signing_key.name
+  value = module.social_media.jwt_signing_key_parameter
 }
 
 output "ads_cursor_key_parameter" {
-  value = aws_ssm_parameter.ads_cursor_signing_key.name
+  value = module.social_media.ads_cursor_key_parameter
 }
 
 output "github_actions_role_arn" {
-  value = aws_iam_role.github_actions_deploy.arn
+  value = module.social_media.github_actions_role_arn
 }
