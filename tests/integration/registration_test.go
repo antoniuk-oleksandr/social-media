@@ -1,44 +1,22 @@
 //go:build integration
 
-package authintegration
+package integration
 
 import (
 	"context"
 	"errors"
 	"strconv"
-	"testing"
 	"time"
 
 	authdomain "github.com/antoniuk-oleksandr/social-media/internal/auth"
 	authdb "github.com/antoniuk-oleksandr/social-media/internal/auth/dynamodb"
 	"github.com/antoniuk-oleksandr/social-media/tests/fixtures"
-	"github.com/antoniuk-oleksandr/social-media/tests/integration/support"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-var integrationSuite *support.DynamoDBSuite
-
-func TestAuthIntegration(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Auth integration suite")
-}
-
-var _ = BeforeSuite(func() {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	var err error
-	integrationSuite, err = support.StartDynamoDB(ctx, "tests-auth")
-	Expect(err).NotTo(HaveOccurred())
-})
-var _ = AfterSuite(func() {
-	if integrationSuite != nil {
-		Expect(integrationSuite.Close(context.Background())).To(Succeed())
-	}
-})
 
 var _ = Describe("registration persistence", func() {
 	It("persists every user, reservation, and refresh-session attribute with String keys", func() {
