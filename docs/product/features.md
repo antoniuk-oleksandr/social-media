@@ -60,7 +60,6 @@ The mixed feed is the central university assignment requirement and is therefore
 - Create a text post.
 - Retrieve a post by ID.
 - Delete a post created by the current user.
-- List posts in reverse chronological order.
 - Store author information or an author reference with every post.
 
 ### Advertisements

@@ -190,20 +190,6 @@ Response: 204 No Content.
 
 Errors: 401 unauthenticated, 403 not the owner, 404 post not found.
 
-#### GET /api/v1/posts
-
-Authentication: optional
-
-Query: limit (default 20, max 100), cursor. Results are sorted by createdAt descending.
-
-Response: 200 OK
-
-    {
-      "items": [],
-      "nextCursor": "eyJ0Ijoi...",
-      "hasMore": true
-    }
-
 ### Advertisements
 
 #### POST /api/v1/ads
@@ -556,7 +542,6 @@ Redis is introduced behind existing endpoints for caching and rate limiting. No 
 | PATCH | /users/me | User | Update own profile |
 | POST | /posts | User | Create post |
 | GET | /posts/{postId} | Optional | Retrieve post |
-| GET | /posts | Optional | List posts |
 | DELETE | /posts/{postId} | Owner | Delete own post |
 | POST | /ads | Admin | Create ad |
 | GET | /ads/{adId} | Admin | Retrieve ad |

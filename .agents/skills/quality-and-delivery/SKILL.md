@@ -11,8 +11,18 @@ The full local requirements are in [`go-architecture.md`](../social-media-mvp/re
 
 - Use Ginkgo and Gomega for unit specifications.
 - Use Testcontainers for DynamoDB integration tests, including transactions, conditional writes, refresh rotation, and pagination keys.
-- Keep Testcontainers lifecycle at suite/package scope: one shared DynamoDB Local container per integration suite or Go test package, started in `BeforeSuite` and terminated in `AfterSuite`; never create one container per test.
+- Keep all repository integration specs in `tests/integration` as one Go package with one shared DynamoDB Local container, started in `BeforeSuite` and terminated in `AfterSuite`; never create one container per test or split the suite into multiple packages.
 - Use Resty for E2E tests against the deployed API Gateway → Lambda → DynamoDB path.
+- Local E2E tests must use `just e2e`: SAM Local serves the public HTTP routes,
+  Lambda functions run in SAM containers, and one suite-scoped DynamoDB Local
+  Testcontainer provides the disposable database. Do not use AWS resources or
+  Compose for E2E tests.
+- E2E coverage is flow-based. Maintain separate multi-step journeys for
+  authentication, profile updates, post/feed behavior, administrator ad CRUD,
+  and mixed feeds containing posts and ads. Do not create one E2E test per
+  endpoint.
+- Split journeys into multiple files/specs when useful, but share the one SAM
+  Local process and one DynamoDB Testcontainer environment for the suite.
 - Combined statement coverage for the complete Go project (`./...`) must be at least 90%; CI must fail below the threshold.
 - Test handlers separately for validation, authentication, status codes, response shape, and error mapping.
 - Use deterministic fixtures for feed and advertisement acceptance tests.

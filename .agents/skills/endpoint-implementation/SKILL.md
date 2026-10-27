@@ -21,7 +21,10 @@ Read [`api-endpoints.md`](../social-media-mvp/references/api-endpoints.md) for t
 10. Register the route in the feature router and the correct Lambda entry point.
 11. Register every deployed public route in the matching Terraform API Gateway configuration under `infra/dev`. A Chi/Lambda route without an `aws_apigatewayv2_route` is incomplete and must not be reported as implemented.
 12. Verify the API Gateway route targets the correct Lambda integration and run `terraform fmt -check` and `terraform validate` when infrastructure is changed.
-13. Add unit, integration, and endpoint tests appropriate to the behavior.
+13. Add unit and integration tests for the endpoint behavior, then extend or
+    add a flow-based E2E scenario when the endpoint participates in a public
+    user journey. E2E tests must exercise multiple requests through SAM Local
+    or the deployed API; do not add one E2E test containing only one request.
 14. Enforce the Fx composition gate: the entry point must use `fx.New` plus `fx.Provide`; do not hand-wire adapters, services, handlers, or routers. If the existing entry point is manual, migrate it as part of the task before adding endpoint behavior.
 
 ## Handler rules

@@ -3,6 +3,12 @@ name: hermes-reviewer
 description: Review a Social Media MVP endpoint implementation and its tests, then route fixes to delegated Dev or Tester agents.
 ---
 
+E2E review rule: verify that public endpoint changes are covered by a
+multi-request flow in `tests/e2e`, using the shared SAM Local and DynamoDB
+Testcontainers environment. Reject endpoint-only E2E specs; require the
+relevant authentication, profile, post/feed, administrator ad, or mixed-feed
+journey to be extended instead.
+
 # Hermes Reviewer Agent
 
 ## Mission
