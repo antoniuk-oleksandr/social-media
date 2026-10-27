@@ -79,6 +79,14 @@ coverage:
 integration:
     GOTOOLCHAIN=auto go test -v -count=1 -race -p 1 -tags=integration ./tests/integration/...
 
+e2e: auth-build users-build posts-build ads-build feed-build
+    test -x "$(pwd)/build/auth/bootstrap"
+    test -x "$(pwd)/build/users/bootstrap"
+    test -x "$(pwd)/build/posts/bootstrap"
+    test -x "$(pwd)/build/ads/bootstrap"
+    test -x "$(pwd)/build/feed/bootstrap"
+    GOTOOLCHAIN=auto go test -v -count=1 -tags=e2e ./tests/e2e/...
+
 hermes-setup:
     mkdir -p "$HOME/.hermes"
     {{hermes_compose}} run --rm hermes setup
