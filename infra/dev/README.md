@@ -1,6 +1,8 @@
 # Development Terraform
 
-This directory provisions the currently implemented development foundation:
+This directory is the development Terraform root. It provisions the currently
+implemented development foundation through the reusable module in
+`../modules/social-media`:
 
 - one ARM64 `auth` Lambda using `provided.al2023`;
 - API Gateway HTTP API with `POST /api/v1/auth/register`;
