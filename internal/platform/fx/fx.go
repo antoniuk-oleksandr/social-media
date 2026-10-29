@@ -10,6 +10,7 @@ import (
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	jwtkey "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/password"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/token"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,6 +24,7 @@ func LoadAWSConfig(ctx context.Context) (aws.Config, error) {
 }
 
 func NewDynamoDBClient(cfg aws.Config) *dynamodb.Client {
+	cfg.APIOptions = append(cfg.APIOptions, platformobservability.DynamoDBAPIOption())
 	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
 		cfg.BaseEndpoint = &endpoint
 		return dynamodb.NewFromConfig(cfg, func(options *dynamodb.Options) {

@@ -9,6 +9,7 @@ import (
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	userfx "github.com/antoniuk-oleksandr/social-media/internal/user/fx"
 	"github.com/aws/aws-lambda-go/lambda"
 	"go.uber.org/fx"
@@ -24,11 +25,12 @@ func main() {
 			platformfx.NewDynamoDBClient,
 			platformfx.NewClock,
 			platformlogging.New,
+			platformobservability.New,
 			platformfx.NewConfiguredAccessTokenIssuer,
 			userfx.NewConfiguredRepository,
 			userfx.NewService,
 			userfx.NewHandler,
-			userfx.NewRouter,
+			userfx.NewObservedRouter,
 		),
 		fx.Populate(&handler),
 	)

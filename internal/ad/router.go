@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -17,7 +18,8 @@ type TokenAuthenticator interface {
 type principalKey struct{}
 
 func WithAuthenticatedAdminID(r *http.Request, id string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), principalKey{}, id))
+	ctx := context.WithValue(r.Context(), principalKey{}, id)
+	return r.WithContext(platformobservability.WithUserID(ctx, id))
 }
 func authenticatedAdminID(r *http.Request) (string, bool) {
 	id, ok := r.Context().Value(principalKey{}).(string)

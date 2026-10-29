@@ -11,6 +11,7 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/id"
 	jwtkey "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/password"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/token"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -101,4 +102,8 @@ func NewHandler(service auth.ServicePort, logger logging.Logger) auth.Handler {
 
 func NewRouter(handler auth.Handler) http.Handler {
 	return auth.Router(handler)
+}
+
+func NewObservedRouter(handler auth.Handler, middleware platformobservability.Middleware) http.Handler {
+	return middleware(NewRouter(handler))
 }
