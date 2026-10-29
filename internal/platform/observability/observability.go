@@ -10,9 +10,13 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	awslambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	"github.com/aws/smithy-go/middleware"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-lambda-go/otellambda/xrayconfig"
+	"go.opentelemetry.io/contrib/propagators/aws/xray"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -35,6 +39,26 @@ const (
 type Middleware func(http.Handler) http.Handler
 
 const localWebOrigin = "http://localhost:8081"
+
+// WrapLambdaHandler connects Lambda invocation context to the shared tracer
+// provider and flushes spans before the invocation completes. AWS uses the
+// X-Ray propagator and event context; local SAM uses the configured OTLP
+// propagator and exporter.
+func WrapLambdaHandler(handler awslambda.Handler) awslambda.Handler {
+	provider, ok := otel.GetTracerProvider().(*trace.TracerProvider)
+	if !ok {
+		return handler
+	}
+
+	options := []otellambda.Option{
+		otellambda.WithTracerProvider(provider),
+		otellambda.WithFlusher(provider),
+	}
+	if appEnvironment() != "local" && appEnvironment() != "" {
+		options = append(options, xrayconfig.WithEventToCarrier(), xrayconfig.WithPropagator())
+	}
+	return otellambda.WrapHandler(handler, options...)
+}
 
 // DynamoDBAPIOption instruments every AWS SDK DynamoDB operation without
 // coupling feature repositories to OpenTelemetry or the AWS middleware API.
@@ -67,7 +91,7 @@ func New(lifecycle fx.Lifecycle, logger logging.Logger) (Middleware, error) {
 		return nil, err
 	}
 	otel.SetTracerProvider(provider)
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	otel.SetTextMapPropagator(tracePropagator())
 	lifecycle.Append(fx.Hook{OnStop: provider.Shutdown})
 
 	return func(next http.Handler) http.Handler {
@@ -165,6 +189,14 @@ func UserID(ctx context.Context) string {
 }
 
 func newTracerProvider() (*trace.TracerProvider, error) {
+	if appEnvironment() != "local" && appEnvironment() != "" {
+		provider, err := xrayconfig.NewTracerProvider(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("create AWS X-Ray tracer provider: %w", err)
+		}
+		return provider, nil
+	}
+
 	sampler := trace.ParentBased(trace.TraceIDRatioBased(sampleRate()))
 	appResource, err := newResource()
 	if err != nil {
@@ -188,6 +220,17 @@ func newTracerProvider() (*trace.TracerProvider, error) {
 		}
 	}
 	return trace.NewTracerProvider(options...), nil
+}
+
+func appEnvironment() string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+}
+
+func tracePropagator() propagation.TextMapPropagator {
+	if appEnvironment() != "local" && appEnvironment() != "" {
+		return xray.Propagator{}
+	}
+	return propagation.TraceContext{}
 }
 
 func newResource() (*resource.Resource, error) {

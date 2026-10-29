@@ -6,62 +6,52 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"sync"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	"github.com/aws/aws-lambda-go/lambdacontext"
 	"github.com/aws/smithy-go/middleware"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"go.uber.org/fx"
+	"go.opentelemetry.io/contrib/propagators/aws/xray"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/mock/gomock"
 )
 
-type fakeLifecycle struct {
-	hooks []fx.Hook
+func newLifecycleMock(ctrl *gomock.Controller) *MockLifecycle {
+	lifecycle := NewMockLifecycle(ctrl)
+	lifecycle.EXPECT().Append(gomock.Any()).AnyTimes()
+	return lifecycle
 }
 
-func (l *fakeLifecycle) Append(hook fx.Hook) { l.hooks = append(l.hooks, hook) }
-
-type capturedLog struct {
-	message string
-	fields  []logging.Field
-}
-
-type captureLogger struct {
-	mu   sync.Mutex
-	logs []capturedLog
-}
-
-func (l *captureLogger) Info(message string, fields ...logging.Field) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.logs = append(l.logs, capturedLog{message: message, fields: fields})
-	return nil
-}
-
-func (l *captureLogger) Error(message string, fields ...logging.Field) error {
-	return l.Info(message, fields...)
-}
-
-func (l *captureLogger) Sync() error { return nil }
-
-func (l *captureLogger) value(key string) string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for _, log := range l.logs {
-		for _, field := range log.fields {
-			if field.Key == key {
-				return field.Value.(string)
+func newLoggerMock(ctrl *gomock.Controller, serverError bool) (*MockLogger, map[string]string) {
+	logger := NewMockLogger(ctrl)
+	values := make(map[string]string)
+	arguments := []any{gomock.Any()}
+	for range 9 {
+		arguments = append(arguments, gomock.Any())
+	}
+	var call *gomock.Call
+	if serverError {
+		call = logger.EXPECT().Error(arguments[0], arguments[1:]...)
+	} else {
+		call = logger.EXPECT().Info(arguments[0], arguments[1:]...)
+	}
+	call.DoAndReturn(func(_ string, fields ...logging.Field) error {
+		for _, field := range fields {
+			if value, ok := field.Value.(string); ok {
+				values[field.Key] = value
 			}
 		}
-	}
-	return ""
+		return nil
+	})
+	return logger, values
 }
 
 var _ = Describe("HTTP observability middleware", func() {
 	It("generates and propagates request and correlation IDs", func() {
-		logger := &captureLogger{}
-		lifecycle := &fakeLifecycle{}
+		ctrl := gomock.NewController(GinkgoT())
+		logger, values := newLoggerMock(ctrl, false)
+		lifecycle := newLifecycleMock(ctrl)
 		middleware, err := New(lifecycle, logger)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -69,6 +59,8 @@ var _ = Describe("HTTP observability middleware", func() {
 			Expect(RequestID(request.Context())).NotTo(BeEmpty())
 			Expect(CorrelationID(request.Context())).To(Equal(RequestID(request.Context())))
 			writer.WriteHeader(http.StatusCreated)
+			_, err := writer.Write([]byte("created"))
+			Expect(err).NotTo(HaveOccurred())
 		}))
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", nil)
 		response := httptest.NewRecorder()
@@ -79,10 +71,37 @@ var _ = Describe("HTTP observability middleware", func() {
 		Expect(response.Header().Get("X-Request-ID")).NotTo(BeEmpty())
 		Expect(response.Header().Get("X-Correlation-ID")).To(Equal(response.Header().Get("X-Request-ID")))
 		Expect(response.Header().Get("Traceparent")).NotTo(BeEmpty())
-		Expect(logger.value("request_id")).To(Equal(response.Header().Get("X-Request-ID")))
-		Expect(logger.value("correlation_id")).To(Equal(response.Header().Get("X-Correlation-ID")))
-		Expect(logger.value("status")).To(Equal("201"))
+		Expect(values["request_id"]).To(Equal(response.Header().Get("X-Request-ID")))
+		Expect(values["correlation_id"]).To(Equal(response.Header().Get("X-Correlation-ID")))
+		Expect(values["status"]).To(Equal("201"))
 		Expect(UserID(WithUserID(request.Context(), "0192f8a0-7b00-7000-8000-000000000001"))).To(Equal("0192f8a0-7b00-7000-8000-000000000001"))
+	})
+
+	It("wraps Lambda handlers for local and AWS environments", func() {
+		previous := os.Getenv("APP_ENV")
+		DeferCleanup(func() {
+			Expect(os.Setenv("APP_ENV", previous)).To(Succeed())
+		})
+
+		Expect(os.Setenv("APP_ENV", "local")).To(Succeed())
+		localProvider, err := newTracerProvider()
+		Expect(err).NotTo(HaveOccurred())
+		otel.SetTracerProvider(localProvider)
+		localHandler := NewMockHandler(gomock.NewController(GinkgoT()))
+		localHandler.EXPECT().Invoke(gomock.Any(), gomock.Any()).Return([]byte(`{"ok":true}`), nil)
+		_, err = WrapLambdaHandler(localHandler).Invoke(context.Background(), []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(localProvider.Shutdown(context.Background())).To(Succeed())
+
+		Expect(os.Setenv("APP_ENV", "dev")).To(Succeed())
+		awsProvider, err := newTracerProvider()
+		Expect(err).NotTo(HaveOccurred())
+		otel.SetTracerProvider(awsProvider)
+		awsHandler := NewMockHandler(gomock.NewController(GinkgoT()))
+		awsHandler.EXPECT().Invoke(gomock.Any(), gomock.Any()).Return([]byte(`{"ok":true}`), nil)
+		_, err = WrapLambdaHandler(awsHandler).Invoke(context.Background(), []byte(`{}`))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(awsProvider.Shutdown(context.Background())).To(Succeed())
 	})
 
 	It("handles the local Flutter Web CORS preflight", func() {
@@ -92,7 +111,8 @@ var _ = Describe("HTTP observability middleware", func() {
 		})
 		Expect(os.Setenv("APP_ENV", "local")).To(Succeed())
 
-		middleware, err := New(&fakeLifecycle{}, &captureLogger{})
+		ctrl := gomock.NewController(GinkgoT())
+		middleware, err := New(newLifecycleMock(ctrl), NewMockLogger(ctrl))
 		Expect(err).NotTo(HaveOccurred())
 		request := httptest.NewRequest(http.MethodOptions, "/api/v1/feed", nil)
 		request.Header.Set("Origin", localWebOrigin)
@@ -108,8 +128,9 @@ var _ = Describe("HTTP observability middleware", func() {
 	})
 
 	It("prefers supplied IDs and extracts a Lambda request ID", func() {
-		logger := &captureLogger{}
-		middleware, err := New(&fakeLifecycle{}, logger)
+		ctrl := gomock.NewController(GinkgoT())
+		logger, values := newLoggerMock(ctrl, false)
+		middleware, err := New(newLifecycleMock(ctrl), logger)
 		Expect(err).NotTo(HaveOccurred())
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
 		request.Header.Set("X-Request-ID", "request-from-client")
@@ -125,12 +146,13 @@ var _ = Describe("HTTP observability middleware", func() {
 
 		Expect(response.Header().Get("X-Request-ID")).To(Equal("request-from-client"))
 		Expect(response.Header().Get("X-Correlation-ID")).To(Equal("correlation-from-client"))
-		Expect(logger.value("lambda_request_id")).To(Equal("lambda-request"))
+		Expect(values["lambda_request_id"]).To(Equal("lambda-request"))
 	})
 
 	It("uses a safe default sample rate and preserves incoming trace context", func() {
-		logger := &captureLogger{}
-		middleware, err := New(&fakeLifecycle{}, logger)
+		ctrl := gomock.NewController(GinkgoT())
+		logger, values := newLoggerMock(ctrl, true)
+		middleware, err := New(newLifecycleMock(ctrl), logger)
 		Expect(err).NotTo(HaveOccurred())
 		request := httptest.NewRequest(http.MethodGet, "/health", nil)
 		request.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
@@ -141,7 +163,7 @@ var _ = Describe("HTTP observability middleware", func() {
 		})).ServeHTTP(response, request)
 
 		Expect(response.Header().Get("Traceparent")).To(MatchRegexp(`^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$`))
-		Expect(logger.value("status")).To(Equal("500"))
+		Expect(values["status"]).To(Equal("500"))
 		previous := os.Getenv("OTEL_TRACES_SAMPLER_ARG")
 		defer os.Setenv("OTEL_TRACES_SAMPLER_ARG", previous)
 		Expect(os.Setenv("OTEL_TRACES_SAMPLER_ARG", "not-a-number")).To(Succeed())
@@ -175,6 +197,19 @@ var _ = Describe("HTTP observability middleware", func() {
 		provider, err := newTracerProvider()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(provider.Shutdown(context.Background())).To(Succeed())
+	})
+
+	It("uses the AWS X-Ray provider and propagator outside local development", func() {
+		previous := os.Getenv("APP_ENV")
+		DeferCleanup(func() {
+			Expect(os.Setenv("APP_ENV", previous)).To(Succeed())
+		})
+		Expect(os.Setenv("APP_ENV", "dev")).To(Succeed())
+
+		provider, err := newTracerProvider()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(provider.Shutdown(context.Background())).To(Succeed())
+		Expect(tracePropagator()).To(BeAssignableToTypeOf(xray.Propagator{}))
 	})
 
 	It("assigns the configured service name to traces", func() {
