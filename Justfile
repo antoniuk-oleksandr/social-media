@@ -8,7 +8,14 @@ default:
     @just --list
 
 local-up:
-    {{compose}} up -d dynamodb-local
+    {{compose}} up -d dynamodb-local otel-collector tempo loki alloy grafana
+    AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 DYNAMODB_ENDPOINT=http://127.0.0.1:8000 {{go_local}} go run ./cmd/local-init
+    GOARCH=amd64 bash scripts/package_lambdas.sh
+    if test -f infra/local/.sam-api.pid && kill -0 "$(sed -n '1p' infra/local/.sam-api.pid)" 2>/dev/null; then echo "SAM Local API already running on http://127.0.0.1:8080"; else nohup setsid sam local start-api --template-file infra/local/template.yaml --env-vars infra/local/env.json --docker-network social-media-local --host 127.0.0.1 --port 8080 </dev/null > /tmp/social-media-local-api.log 2>&1 & echo $! > infra/local/.sam-api.pid; fi
+    for attempt in {1..30}; do if curl -s --max-time 1 http://127.0.0.1:8080/ >/dev/null; then echo "Local API available at http://127.0.0.1:8080"; break; fi; sleep 1; done
+
+local-observability:
+    {{compose}} up -d otel-collector tempo loki alloy grafana
 
 local-init:
     AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy AWS_REGION=us-east-1 DYNAMODB_ENDPOINT=http://127.0.0.1:8000 {{go_local}} go run ./cmd/local-init
@@ -70,6 +77,7 @@ terraform-destroy-dev: terraform-init-dev
     set -a; source infra/dev/.env; set +a; terraform -chdir=infra/dev/bootstrap destroy -auto-approve -input=false
 
 local-down:
+    if test -f infra/local/.sam-api.pid; then kill "$(sed -n '1p' infra/local/.sam-api.pid)" 2>/dev/null || true; rm -f infra/local/.sam-api.pid; fi
     {{compose}} down
 
 coverage:

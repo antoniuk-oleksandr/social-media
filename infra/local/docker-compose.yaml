@@ -5,12 +5,96 @@ services:
     image: amazon/dynamodb-local:latest
     container_name: social-media-dynamodb-local
     restart: unless-stopped
+    user: "0:0"
     command: >-
       -jar DynamoDBLocal.jar
       -sharedDb
-      -inMemory
+      -dbPath /home/dynamodblocal/data
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - dynamodb-local-data:/home/dynamodblocal/data
+    networks:
+      - social-media-local
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    container_name: social-media-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - social-media-local
+
+  tempo:
+    image: grafana/tempo:3.0.4
+    container_name: social-media-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "127.0.0.1:3200:3200"
+      - "127.0.0.1:4319:4317"
+    volumes:
+      - ./tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - social-media-local
+
+  loki:
+    image: grafana/loki:3.7.0
+    container_name: social-media-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    networks:
+      - social-media-local
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    container_name: social-media-alloy
+    restart: unless-stopped
+    depends_on:
+      - loki
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "127.0.0.1:12345:12345"
+    volumes:
+      - ./alloy.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      - ${LOCAL_LOG_DIR:-/tmp/social-media-local-logs}:/var/log/social-media:ro
+    networks:
+      - social-media-local
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    container_name: social-media-grafana
+    restart: unless-stopped
+    depends_on:
+      - tempo
+      - loki
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
     networks:
       - social-media-local
 
@@ -48,6 +132,18 @@ services:
       - social-media-local
     mem_limit: 4g
     cpus: 2.0
+
+volumes:
+  dynamodb-local-data:
+    name: social-media-dynamodb-local-data
+  tempo-data:
+    name: social-media-tempo-data
+  loki-data:
+    name: social-media-loki-data
+  grafana-data:
+    name: social-media-grafana-data
+  alloy-data:
+    name: social-media-alloy-data
 
 networks:
   social-media-local:

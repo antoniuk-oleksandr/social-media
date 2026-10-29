@@ -2,3 +2,6 @@ data/
 .invoke-event.json
 .runtime-env.json
 .env
+logs/*
+!logs/.gitkeep
+.sam-api.pid

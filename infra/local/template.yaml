@@ -22,6 +22,12 @@ Resources:
           UNIQUES_TABLE: social-media-local-uniques
           REFRESH_TABLE: social-media-local-refresh-sessions
           JWT_ACCESS_SECRET: local-development-secret
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_SERVICE_NAME: social-media-local-auth
+          OTEL_SDK_DISABLED: "false"
+          OTEL_TRACES_SAMPLER: parentbased_traceidratio
+          OTEL_TRACES_SAMPLER_ARG: "1.0"
       Events:
         Register:
           Type: HttpApi
@@ -35,6 +41,9 @@ Resources:
         Logout:
           Type: HttpApi
           Properties: {Path: /api/v1/auth/logout, Method: POST}
+        CorsPreflight:
+          Type: HttpApi
+          Properties: {Path: "/{proxy+}", Method: OPTIONS}
 
   UsersFunction:
     Type: AWS::Serverless::Function
@@ -56,6 +65,12 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_SERVICE_NAME: social-media-local-users
+          OTEL_SDK_DISABLED: "false"
+          OTEL_TRACES_SAMPLER: parentbased_traceidratio
+          OTEL_TRACES_SAMPLER_ARG: "1.0"
       Events:
         GetUser:
           Type: HttpApi
@@ -84,6 +99,12 @@ Resources:
           JWT_ACCESS_SECRET: local-development-secret
           JWT_ISSUER: social-media-api
           JWT_AUDIENCE: social-media-api
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_SERVICE_NAME: social-media-local-posts
+          OTEL_SDK_DISABLED: "false"
+          OTEL_TRACES_SAMPLER: parentbased_traceidratio
+          OTEL_TRACES_SAMPLER_ARG: "1.0"
       Events:
         CreatePost:
           Type: HttpApi
@@ -117,6 +138,12 @@ Resources:
           JWT_AUDIENCE: social-media-api
           ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
           ADS_CURSOR_KEY_ID: local
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_SERVICE_NAME: social-media-local-ads
+          OTEL_SDK_DISABLED: "false"
+          OTEL_TRACES_SAMPLER: parentbased_traceidratio
+          OTEL_TRACES_SAMPLER_ARG: "1.0"
       Events:
         CreateAd:
           Type: HttpApi
@@ -159,6 +186,12 @@ Resources:
           JWT_AUDIENCE: social-media-api
           ADS_CURSOR_KEY: local-development-ads-cursor-key-change-me
           ADS_CURSOR_KEY_ID: local
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_SERVICE_NAME: social-media-local-feed
+          OTEL_SDK_DISABLED: "false"
+          OTEL_TRACES_SAMPLER: parentbased_traceidratio
+          OTEL_TRACES_SAMPLER_ARG: "1.0"
       Events:
         Feed:
           Type: HttpApi

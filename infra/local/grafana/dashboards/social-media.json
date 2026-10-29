@@ -1,0 +1,20 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "content": "## Local tracing\n\nOpen **Explore**, select the **Tempo** data source, and search traces emitted by the local SAM Lambda containers.\n\nThe OpenTelemetry Collector forwards spans to Tempo and also prints a compact debug summary in its logs.",
+        "mode": "markdown"
+      },
+      "title": "Social Media local observability",
+      "type": "text"
+    }
+  ],
+  "schemaVersion": 39,
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Social Media Local Observability",
+  "version": 1
+}
