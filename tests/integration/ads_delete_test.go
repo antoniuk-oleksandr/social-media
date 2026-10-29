@@ -21,7 +21,7 @@ var _ = Describe("DELETE advertisement persistence", func() {
 		now := time.Date(2026, 10, 18, 12, 0, 0, 123000000, time.UTC)
 		adID := "0192f8a0-7b00-7000-8000-000000000831"
 		repository := &addb.Repository{Client: userIntegrationSuite.Client, TableName: adsTable}
-		service := adfeature.NewService(repository, integrationIDGenerator{id: adID}, integrationClock{value: now})
+		service := adfeature.NewService(repository, newIntegrationID(adID), fixedIntegrationClock(now))
 
 		_, err := service.Create(context.Background(), adfeature.CreateCommand{
 			AdminID: "0192f8a0-7b00-7000-8000-000000000832", Advertiser: "Example", Content: "Delete me", TargetURL: "https://example.com",
@@ -39,7 +39,7 @@ var _ = Describe("DELETE advertisement persistence", func() {
 		now := time.Date(2026, 10, 18, 12, 0, 0, 123000000, time.UTC)
 		adID := "0192f8a0-7b00-7000-8000-000000000834"
 		repository := &addb.Repository{Client: userIntegrationSuite.Client, TableName: adsTable}
-		service := adfeature.NewService(repository, integrationIDGenerator{id: adID}, integrationClock{value: now})
+		service := adfeature.NewService(repository, newIntegrationID(adID), fixedIntegrationClock(now))
 
 		_, err := service.Create(context.Background(), adfeature.CreateCommand{
 			AdminID: "0192f8a0-7b00-7000-8000-000000000835", Advertiser: "Example", Content: "Feed exclusion", TargetURL: "https://example.com",

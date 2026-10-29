@@ -12,33 +12,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-type recordingLogger struct {
-	infoMessage  string
-	errorMessage string
-	infoFields   []logging.Field
-	errorFields  []logging.Field
-	errorErr     error
-}
-
-func (l *recordingLogger) Info(message string, fields ...logging.Field) error {
-	l.infoMessage, l.infoFields = message, fields
-	return nil
-}
-
-func (l *recordingLogger) Error(message string, fields ...logging.Field) error {
-	l.errorMessage, l.errorFields = message, fields
-	return l.errorErr
-}
-
-func (l *recordingLogger) Sync() error { return nil }
-
 var _ = Describe("advertisement request handling", func() {
 	const adminID = "0192c5f4-7b2a-7abc-8def-1234567890ab"
 	const adID = "0192c5f4-7b2a-7abd-8def-1234567890ab"
 	validBody := `{"advertiser":"Example","content":"hello","targetUrl":"https://example.com","startsAt":"2026-10-18T11:00:00Z","endsAt":"2026-10-18T13:00:00Z","status":"active"}`
 
 	newHandler := func(repository Repository) *Handler {
-		return NewHandler(NewService(repository, fakeIDs{value: adID}, fakeClock{now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}))
+		return NewHandler(NewService(repository, newAdIDs(adID, nil), newAdClock(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC))))
 	}
 	request := func(body string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/ads", strings.NewReader(body))
@@ -49,7 +29,7 @@ var _ = Describe("advertisement request handling", func() {
 	It("maps request decoding and validation failures", func() {
 		for _, body := range []string{"{", `{"unknown":true}`, `{"advertiser":"Example","content":"hello","targetUrl":"https://example.com","startsAt":"not-time","endsAt":"2026-10-18T13:00:00Z","status":"active"}`} {
 			response := httptest.NewRecorder()
-			newHandler(&fakeRepository{}).Create(response, request(body))
+			newHandler(newRepositoryFixture(Advertisement{}, nil, ListResult{})).Create(response, request(body))
 			if body == "{" || body == `{"unknown":true}` {
 				Expect(response.Code).To(Equal(http.StatusBadRequest), body)
 				Expect(response.Body.String()).To(ContainSubstring(`"code":"INVALID_JSON"`))
@@ -59,7 +39,7 @@ var _ = Describe("advertisement request handling", func() {
 			}
 		}
 		response := httptest.NewRecorder()
-		newHandler(&fakeRepository{}).Create(response, request(`{"advertiser":"","content":"hello","targetUrl":"https://example.com","startsAt":"2026-10-18T11:00:00Z","endsAt":"2026-10-18T13:00:00Z","status":"active"}`))
+		newHandler(newRepositoryFixture(Advertisement{}, nil, ListResult{})).Create(response, request(`{"advertiser":"","content":"hello","targetUrl":"https://example.com","startsAt":"2026-10-18T11:00:00Z","endsAt":"2026-10-18T13:00:00Z","status":"active"}`))
 		Expect(response.Code).To(Equal(http.StatusUnprocessableEntity))
 		Expect(response.Body.String()).To(ContainSubstring(`"code":"VALIDATION_FAILED"`))
 	})
@@ -68,18 +48,18 @@ var _ = Describe("advertisement request handling", func() {
 		response := httptest.NewRecorder()
 		r := request(validBody)
 		r.Header.Set("X-Request-ID", "req-ad-123")
-		newHandler(&fakeRepository{err: ErrDependencyUnavailable}).Create(response, r)
+		newHandler(newRepositoryFixture(Advertisement{}, ErrDependencyUnavailable, ListResult{})).Create(response, r)
 		Expect(response.Code).To(Equal(http.StatusServiceUnavailable))
 		Expect(response.Body.String()).To(ContainSubstring(`"requestId":"req-ad-123"`))
 
 		response = httptest.NewRecorder()
-		newHandler(&fakeRepository{err: errors.New("write failed")}).Create(response, request(validBody))
+		newHandler(newRepositoryFixture(Advertisement{}, errors.New("write failed"), ListResult{})).Create(response, request(validBody))
 		Expect(response.Code).To(Equal(http.StatusInternalServerError))
 		Expect(response.Body.String()).To(ContainSubstring(`"code":"INTERNAL_ERROR"`))
 	})
 
 	It("maps ID generation failures to dependency unavailable", func() {
-		handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{err: errors.New("id unavailable")}, fakeClock{now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}))
+		handler := NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs("", errors.New("id unavailable")), newAdClock(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC))))
 		response := httptest.NewRecorder()
 		handler.Create(response, request(validBody))
 		Expect(response.Code).To(Equal(http.StatusServiceUnavailable))
@@ -92,8 +72,8 @@ var _ = Describe("advertisement request handling", func() {
 	})
 
 	It("logs successful requests with request metadata", func() {
-		logger := &recordingLogger{}
-		handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}), logger)
+		logger := newAdLogger(nil)
+		handler := NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC))), logger)
 		response := httptest.NewRecorder()
 		r := request(validBody)
 		r.Header.Set("X-Request-ID", "req-ad-success")
@@ -106,8 +86,8 @@ var _ = Describe("advertisement request handling", func() {
 	})
 
 	It("logs failed requests and tolerates logger failures", func() {
-		logger := &recordingLogger{errorErr: errors.New("logger unavailable")}
-		handler := NewHandler(NewService(&fakeRepository{err: errors.New("write failed")}, fakeIDs{value: adID}, fakeClock{now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}), logger)
+		logger := newAdLogger(errors.New("logger unavailable"))
+		handler := NewHandler(NewService(newRepositoryFixture(Advertisement{}, errors.New("write failed"), ListResult{}), newAdIDs(adID, nil), newAdClock(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC))), logger)
 		response := httptest.NewRecorder()
 		handler.Create(response, request(validBody))
 		Expect(response.Code).To(Equal(http.StatusInternalServerError))
@@ -117,8 +97,8 @@ var _ = Describe("advertisement request handling", func() {
 	})
 
 	It("rejects a non-JSON content type and still logs the failure", func() {
-		logger := &recordingLogger{}
-		handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)}), logger)
+		logger := newAdLogger(nil)
+		handler := NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC))), logger)
 		r := request(validBody)
 		r.Header.Set("Content-Type", "text/plain")
 		response := httptest.NewRecorder()

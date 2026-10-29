@@ -8,25 +8,43 @@ import (
 
 	"github.com/antoniuk-oleksandr/social-media/internal/ad"
 	"github.com/antoniuk-oleksandr/social-media/internal/post"
+	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type fakePosts struct{ items []post.Post }
-
-func (f fakePosts) List(context.Context, time.Time) ([]post.Post, error) {
-	return append([]post.Post(nil), f.items...), nil
+func newFeedService(items []post.Post, ads []ad.Advertisement, now time.Time) Service {
+	ctrl := gomock.NewController(GinkgoT())
+	posts := NewMockPostSource(ctrl)
+	postValues := append([]post.Post(nil), items...)
+	posts.EXPECT().List(gomock.Any(), gomock.Any()).AnyTimes().Return(postValues, nil)
+	advertisements := NewMockAdSource(ctrl)
+	adValues := append([]ad.Advertisement(nil), ads...)
+	advertisements.EXPECT().List(gomock.Any()).AnyTimes().Return(adValues, nil)
+	clock := NewMockClock(ctrl)
+	clock.EXPECT().Now().AnyTimes().Return(now)
+	return NewService(posts, advertisements, clock, "test-key", "v1")
 }
 
-type fakeAds struct{ items []ad.Advertisement }
-
-func (f fakeAds) List(context.Context) ([]ad.Advertisement, error) {
-	return append([]ad.Advertisement(nil), f.items...), nil
+func newFeedAuthenticator(id string, err error) *MockTokenAuthenticator {
+	auth := NewMockTokenAuthenticator(gomock.NewController(GinkgoT()))
+	auth.EXPECT().Authenticate(gomock.Any(), gomock.Any()).AnyTimes().Return(id, err)
+	return auth
 }
 
-type fakeClock struct{ now time.Time }
-
-func (f fakeClock) Now() time.Time { return f.now }
+func newFeedServiceWithAuthors(items []post.Post, ads []ad.Advertisement, now time.Time, authors map[string]user.User, authorErr error) Service {
+	ctrl := gomock.NewController(GinkgoT())
+	posts := NewMockPostSource(ctrl)
+	posts.EXPECT().List(gomock.Any(), gomock.Any()).AnyTimes().Return(append([]post.Post(nil), items...), nil)
+	advertisements := NewMockAdSource(ctrl)
+	advertisements.EXPECT().List(gomock.Any()).AnyTimes().Return(append([]ad.Advertisement(nil), ads...), nil)
+	clock := NewMockClock(ctrl)
+	clock.EXPECT().Now().AnyTimes().Return(now)
+	authorSource := NewMockAuthorSource(ctrl)
+	authorSource.EXPECT().GetByIDs(gomock.Any(), gomock.Any()).AnyTimes().Return(authors, authorErr)
+	return NewService(posts, advertisements, clock, "key", "v1", authorSource)
+}
 func makePosts(n int) []post.Post {
 	out := make([]post.Post, n)
 	for i := range out {
@@ -46,7 +64,7 @@ var _ = Describe("feed service", func() {
 		now := time.UnixMilli(3000)
 		ads := []ad.Advertisement{activeAd(0), activeAd(1), activeAd(2)}
 		collect := func() ([]string, []string) {
-			svc := NewService(fakePosts{makePosts(45)}, fakeAds{ads}, fakeClock{now}, "test-key", "v1")
+			svc := newFeedService(makePosts(45), ads, now)
 			var cursor string
 			seenPosts := map[string]bool{}
 			var postIDs, adIDs []string
@@ -81,7 +99,7 @@ var _ = Describe("feed service", func() {
 	})
 
 	It("handles empty ads and rejects invalid cursors", func() {
-		svc := NewService(fakePosts{makePosts(5)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "test-key", "v1")
+		svc := newFeedService(makePosts(5), nil, time.UnixMilli(3000))
 		r, e := svc.Build(context.Background(), Query{Limit: 20})
 		Expect(e).NotTo(HaveOccurred())
 		Expect(r.Items).To(HaveLen(5))
@@ -93,7 +111,7 @@ var _ = Describe("feed service", func() {
 	})
 
 	It("includes an eligible ad on an incomplete organic page", func() {
-		svc := NewService(fakePosts{makePosts(5)}, fakeAds{[]ad.Advertisement{activeAd(0)}}, fakeClock{time.UnixMilli(3000)}, "test-key", "v1")
+		svc := newFeedService(makePosts(5), []ad.Advertisement{activeAd(0)}, time.UnixMilli(3000))
 		result, err := svc.Build(context.Background(), Query{Limit: 20})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Items).To(HaveLen(6))
@@ -102,7 +120,7 @@ var _ = Describe("feed service", func() {
 	})
 
 	It("does not invent an ad for a truly empty feed", func() {
-		svc := NewService(fakePosts{}, fakeAds{[]ad.Advertisement{activeAd(0)}}, fakeClock{time.UnixMilli(3000)}, "test-key", "v1")
+		svc := newFeedService(nil, []ad.Advertisement{activeAd(0)}, time.UnixMilli(3000))
 		result, err := svc.Build(context.Background(), Query{Limit: 20})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Items).To(BeEmpty())
@@ -112,7 +130,7 @@ var _ = Describe("feed service", func() {
 
 	It("rejects cursor limit mismatches", func() {
 		now := time.UnixMilli(3000)
-		svc := NewService(fakePosts{makePosts(25)}, fakeAds{}, fakeClock{now}, "test-key", "v1")
+		svc := newFeedService(makePosts(25), nil, now)
 		r, e := svc.Build(context.Background(), Query{Limit: 20})
 		Expect(e).NotTo(HaveOccurred())
 		Expect(r.HasMore).To(BeTrue())

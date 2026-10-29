@@ -16,17 +16,8 @@ import (
 
 type API interface {
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
-}
-
-type batchAPI interface {
 	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
-}
-
-type updateAPI interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
-}
-
-type transactAPI interface {
 	TransactWriteItems(context.Context, *dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
 }
 
@@ -69,10 +60,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (user.User, error) 
 }
 
 func (r *Repository) GetByIDs(ctx context.Context, ids []string) (map[string]user.User, error) {
-	client, ok := r.Client.(batchAPI)
-	if !ok {
-		return nil, user.ErrDependencyUnavailable
-	}
+	client := r.Client
 	keys := make([]map[string]types.AttributeValue, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
@@ -131,10 +119,7 @@ func (r *Repository) UpdateProfile(ctx context.Context, command user.UpdateProfi
 	if err != nil {
 		return user.User{}, err
 	}
-	client, ok := r.Client.(updateAPI)
-	if !ok {
-		return user.User{}, user.ErrDependencyUnavailable
-	}
+	client := r.Client
 	sets := []string{"#updatedAt = :updatedAt"}
 	values := map[string]types.AttributeValue{}
 	names := map[string]string{"#updatedAt": "updatedAt"}
@@ -161,11 +146,7 @@ func (r *Repository) UpdateProfile(ctx context.Context, command user.UpdateProfi
 		ConditionExpression: aws.String("attribute_exists(userId)"),
 	}
 	if command.Username != nil && *command.Username != current.Username {
-		transactionClient, ok := r.Client.(transactAPI)
-		if !ok {
-			return user.User{}, user.ErrDependencyUnavailable
-		}
-		_, err = transactionClient.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
+		_, err = r.Client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: []types.TransactWriteItem{
 			{Delete: &types.Delete{TableName: aws.String(r.UniqueTableName), Key: map[string]types.AttributeValue{"uniqueKey": &types.AttributeValueMemberS{Value: "USERNAME#" + current.Username}}, ConditionExpression: aws.String("userId = :owner"), ExpressionAttributeValues: map[string]types.AttributeValue{":owner": &types.AttributeValueMemberS{Value: command.UserID}}}},
 			{Put: &types.Put{TableName: aws.String(r.UniqueTableName), Item: map[string]types.AttributeValue{"uniqueKey": &types.AttributeValueMemberS{Value: "USERNAME#" + *command.Username}, "userId": &types.AttributeValueMemberS{Value: command.UserID}}, ConditionExpression: aws.String("attribute_not_exists(uniqueKey)")}},
 			{Update: update},

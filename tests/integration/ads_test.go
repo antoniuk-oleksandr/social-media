@@ -39,7 +39,7 @@ var _ = Describe("POST ad persistence", func() {
 		startsAt := now.Add(-time.Hour)
 		endsAt := now.Add(time.Hour)
 		repository := &addb.Repository{Client: userIntegrationSuite.Client, TableName: adsTable}
-		service := adfeature.NewService(repository, integrationIDGenerator{id: adID}, integrationClock{value: now})
+		service := adfeature.NewService(repository, newIntegrationID(adID), fixedIntegrationClock(now))
 
 		created, err := service.Create(context.Background(), adfeature.CreateCommand{
 			AdminID: adminID, Advertiser: " Example Company ", Content: " Try our product ", TargetURL: "https://example.com", StartsAt: startsAt, EndsAt: endsAt, Status: adfeature.StatusActive,

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 )
@@ -16,8 +17,8 @@ func TestDeleteAdvertisement(t *testing.T) {
 	const adminID = "0192f8a0-7b00-7000-8000-000000000002"
 
 	t.Run("service validates the UUID and delegates deletion", func(t *testing.T) {
-		repository := &fakeRepository{}
-		service := NewService(repository, fakeIDs{}, fakeClock{})
+		repository := newRepositoryFixtureWithReporter(t, Advertisement{}, nil, ListResult{})
+		service := NewService(repository, newAdIDsWithReporter(t, "", nil), newAdClockWithReporter(t, time.Time{}))
 		if err := service.Delete(context.Background(), "not-an-id"); !errors.Is(err, ErrInvalidID) {
 			t.Fatalf("Delete() error = %v, want %v", err, ErrInvalidID)
 		}
@@ -36,17 +37,17 @@ func TestDeleteAdvertisement(t *testing.T) {
 		for _, test := range []struct {
 			name       string
 			path       string
-			repository *fakeRepository
+			repository *repositoryFixture
 			status     int
 			code       string
 		}{
-			{name: "success", path: adID, repository: &fakeRepository{}, status: http.StatusNoContent},
-			{name: "invalid ID", path: "not-an-id", repository: &fakeRepository{}, status: http.StatusUnprocessableEntity, code: "VALIDATION_FAILED"},
-			{name: "not found", path: adID, repository: &fakeRepository{err: ErrNotFound}, status: http.StatusNotFound, code: "NOT_FOUND"},
-			{name: "dependency unavailable", path: adID, repository: &fakeRepository{err: ErrDependencyUnavailable}, status: http.StatusServiceUnavailable, code: "SERVICE_UNAVAILABLE"},
+			{name: "success", path: adID, repository: newRepositoryFixtureWithReporter(t, Advertisement{}, nil, ListResult{}), status: http.StatusNoContent},
+			{name: "invalid ID", path: "not-an-id", repository: newRepositoryFixtureWithReporter(t, Advertisement{}, nil, ListResult{}), status: http.StatusUnprocessableEntity, code: "VALIDATION_FAILED"},
+			{name: "not found", path: adID, repository: newRepositoryFixtureWithReporter(t, Advertisement{}, ErrNotFound, ListResult{}), status: http.StatusNotFound, code: "NOT_FOUND"},
+			{name: "dependency unavailable", path: adID, repository: newRepositoryFixtureWithReporter(t, Advertisement{}, ErrDependencyUnavailable, ListResult{}), status: http.StatusServiceUnavailable, code: "SERVICE_UNAVAILABLE"},
 		} {
 			t.Run(test.name, func(t *testing.T) {
-				router := NewRouter(NewHandler(NewService(test.repository, fakeIDs{}, fakeClock{})), fakeAuth{id: adminID})
+				router := NewRouter(NewHandler(NewService(test.repository, newAdIDsWithReporter(t, "", nil), newAdClockWithReporter(t, time.Time{}))), newAdminAuthWithReporter(t, adminID, nil))
 				request := httptest.NewRequest(http.MethodDelete, "/api/v1/ads/"+test.path, nil)
 				request.Header.Set("Authorization", "Bearer admin-token")
 				response := httptest.NewRecorder()
@@ -77,7 +78,7 @@ func TestDeleteAdvertisement(t *testing.T) {
 			{name: "regular user", authorize: "Bearer user-token", authError: auth.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
 		} {
 			t.Run(test.name, func(t *testing.T) {
-				router := NewRouter(NewHandler(NewService(&fakeRepository{}, fakeIDs{}, fakeClock{})), fakeAuth{err: test.authError})
+				router := NewRouter(NewHandler(NewService(newRepositoryFixtureWithReporter(t, Advertisement{}, nil, ListResult{}), newAdIDsWithReporter(t, "", nil), newAdClockWithReporter(t, time.Time{}))), newAdminAuthWithReporter(t, "", test.authError))
 				request := httptest.NewRequest(http.MethodDelete, "/api/v1/ads/"+adID, nil)
 				request.Header.Set("Authorization", test.authorize)
 				response := httptest.NewRecorder()

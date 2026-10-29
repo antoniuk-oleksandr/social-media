@@ -33,7 +33,7 @@ var _ = Describe("POST /api/v1/ads", func() {
 			{AdminID: adminID, Advertiser: "Example", Content: "hello", TargetURL: "https://example.com", StartsAt: now.Add(time.Hour), EndsAt: now.Add(2 * time.Hour), Status: StatusActive},
 			{AdminID: adminID, Advertiser: "Example", Content: "hello", TargetURL: "https://example.com", StartsAt: now.Add(-2 * time.Hour), EndsAt: now.Add(time.Hour), Status: StatusExpired},
 		} {
-			_, err := NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now}).Create(context.Background(), command)
+			_, err := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now)).Create(context.Background(), command)
 			Expect(err).To(MatchError(ErrValidation))
 		}
 	})
@@ -51,25 +51,25 @@ var _ = Describe("POST /api/v1/ads", func() {
 			"https://" + strings.Repeat("a", 64) + ".com",
 			"https://" + strings.Repeat("a.", 126) + "a.com",
 		} {
-			_, err := NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now}).Create(context.Background(), CreateCommand{
+			_, err := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now)).Create(context.Background(), CreateCommand{
 				AdminID: adminID, Advertiser: "Example", Content: "hello", TargetURL: url, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Status: StatusPaused,
 			})
 			Expect(err).To(MatchError(ErrValidation))
 		}
 		for _, url := range []string{"https://example.com", "https://example.com:8443/path", "https://127.0.0.1", "https://[2001:db8::1]/ad"} {
-			_, err := NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now}).Create(context.Background(), CreateCommand{
+			_, err := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now)).Create(context.Background(), CreateCommand{
 				AdminID: adminID, Advertiser: "Example", Content: "hello", TargetURL: url, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Status: StatusPaused,
 			})
 			Expect(err).NotTo(HaveOccurred(), url)
 		}
-		_, err := NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now}).Create(context.Background(), CreateCommand{
+		_, err := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now)).Create(context.Background(), CreateCommand{
 			AdminID: adminID, Advertiser: "Example", Content: strings.Repeat("x", 1001), TargetURL: "https://example.com", StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Status: StatusPaused,
 		})
 		Expect(err).To(MatchError(ErrValidation))
 	})
 
 	It("returns 403 for a valid non-admin token", func() {
-		router := NewRouter(NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now})), fakeAuth{err: auth.ErrForbidden})
+		router := NewRouter(NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now))), newAdminAuth("", auth.ErrForbidden))
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/ads", strings.NewReader(`{"advertiser":"Example","content":"hello","targetUrl":"https://example.com","startsAt":"2026-10-18T11:00:00Z","endsAt":"2026-10-18T13:00:00Z","status":"active"}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Authorization", "Bearer user-token")
@@ -80,7 +80,7 @@ var _ = Describe("POST /api/v1/ads", func() {
 	})
 
 	It("returns 401 when authentication is absent", func() {
-		router := NewRouter(NewHandler(NewService(&fakeRepository{}, fakeIDs{value: adID}, fakeClock{now: now})), fakeAuth{id: adminID})
+		router := NewRouter(NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs(adID, nil), newAdClock(now))), newAdminAuth(adminID, nil))
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/ads", strings.NewReader(`{}`))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()

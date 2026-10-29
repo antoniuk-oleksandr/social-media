@@ -24,6 +24,8 @@ var _ = Describe("observability deployment contract", func() {
 			Expect(block).To(ContainSubstring("layers"), function)
 			Expect(block).To(ContainSubstring("[var.adot_layer_arn]"), function)
 			Expect(block).To(ContainSubstring(`mode = "Active"`), function)
+			Expect(block).To(ContainSubstring("APP_ENV"), function)
+			Expect(block).To(ContainSubstring("var.environment"), function)
 			Expect(block).NotTo(ContainSubstring("127.0.0.1:4318"), function)
 			Expect(block).NotTo(ContainSubstring("OTEL_EXPORTER_OTLP_ENDPOINT"), function)
 			Expect(block).To(ContainSubstring("OTEL_TRACES_SAMPLER_ARG"), function)

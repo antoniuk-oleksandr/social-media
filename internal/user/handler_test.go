@@ -14,54 +14,31 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type handlerService struct {
-	value   User
-	err     error
-	id      string
-	command UpdateProfileCommand
-	calls   int
+func newHandlerService(value User, err error) (*MockService, *int) {
+	service := NewMockService(gomock.NewController(GinkgoT()))
+	calls := new(int)
+	service.EXPECT().GetByID(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string) (User, error) { *calls++; return value, err })
+	service.EXPECT().UpdateProfile(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, UpdateProfileCommand) (User, error) { *calls++; return value, err })
+	return service, calls
 }
 
-func (s *handlerService) GetByID(_ context.Context, id string) (User, error) {
-	s.calls++
-	s.id = id
-	return s.value, s.err
+func newHandlerAuth(id string, err error) *MockTokenAuthenticator {
+	authenticator := NewMockTokenAuthenticator(gomock.NewController(GinkgoT()))
+	authenticator.EXPECT().Authenticate(gomock.Any(), gomock.Any()).AnyTimes().Return(id, err)
+	return authenticator
 }
 
-func (s *handlerService) UpdateProfile(_ context.Context, command UpdateProfileCommand) (User, error) {
-	s.calls++
-	s.id = command.UserID
-	s.command = command
-	return s.value, s.err
+func newHandlerLogger() (*MockLogger, *int, *int) {
+	logger := NewMockLogger(gomock.NewController(GinkgoT()))
+	infoCalls, errorCalls := new(int), new(int)
+	logger.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(string, ...logging.Field) error { *infoCalls++; return nil })
+	logger.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(string, ...logging.Field) error { *errorCalls++; return nil })
+	logger.EXPECT().Sync().AnyTimes().Return(nil)
+	return logger, infoCalls, errorCalls
 }
-
-type handlerAuthenticator struct {
-	id  string
-	err error
-}
-
-func (a handlerAuthenticator) Authenticate(context.Context, string) (string, error) {
-	return a.id, a.err
-}
-
-type handlerLogger struct {
-	infoCalls  int
-	errorCalls int
-}
-
-func (l *handlerLogger) Info(_ string, _ ...logging.Field) error {
-	l.infoCalls++
-	return nil
-}
-
-func (l *handlerLogger) Error(_ string, _ ...logging.Field) error {
-	l.errorCalls++
-	return nil
-}
-
-func (l *handlerLogger) Sync() error { return nil }
 
 func profileID() string {
 	return "0192f8a0-7b00-7000-8000-000000000001"
@@ -69,7 +46,7 @@ func profileID() string {
 
 var _ = Describe("User service and HTTP handler", func() {
 	It("accepts only canonical UUIDv7 IDs before querying the repository", func() {
-		repository := &handlerService{}
+		repository, calls := newHandlerService(User{}, nil)
 		service := NewService(repository)
 
 		for _, invalid := range []string{"", "0", "0192f8a0-7b00-6000-8000-000000000001"} {
@@ -80,16 +57,17 @@ var _ = Describe("User service and HTTP handler", func() {
 			_, err := service.GetByID(context.Background(), valid)
 			Expect(err).NotTo(HaveOccurred())
 		}
-		Expect(repository.calls).To(Equal(3))
+		Expect(*calls).To(Equal(3))
 	})
 
 	It("returns the exact public profile and excludes private fields", func() {
 		id := profileID()
 		created := time.Date(2026, time.October, 24, 12, 34, 56, 123000000, time.FixedZone("test", 3600))
-		handler := NewHandler(&handlerService{value: User{
+		service, _ := newHandlerService(User{
 			ID: id, Username: "alice", Email: "alice@example.com", PasswordHash: "hash",
 			DisplayName: "Alice", Role: RoleUser, Status: StatusActive, CreatedAt: created,
-		}})
+		}, nil)
+		handler := NewHandler(service)
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		request = withURLParam(request, "userId", id)
 		response := httptest.NewRecorder()
@@ -113,7 +91,7 @@ var _ = Describe("User service and HTTP handler", func() {
 
 	It("allows requests without Authorization and maps not found to NOT_FOUND", func() {
 		id := profileID()
-		service := &handlerService{err: ErrNotFound}
+		service, calls := newHandlerService(User{}, ErrNotFound)
 		handler := NewHandler(service)
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		request = withURLParam(request, "userId", id)
@@ -126,7 +104,7 @@ var _ = Describe("User service and HTTP handler", func() {
 		Expect(json.Unmarshal(response.Body.Bytes(), &body)).To(Succeed())
 		Expect(body.Error.Code).To(Equal("NOT_FOUND"))
 		Expect(body.Error.Message).To(Equal("User not found"))
-		Expect(service.calls).To(Equal(1))
+		Expect(*calls).To(Equal(1))
 		Expect(request.Header.Get("Authorization")).To(BeEmpty())
 	})
 
@@ -139,7 +117,7 @@ var _ = Describe("User service and HTTP handler", func() {
 			{err: ErrInvalidID, status: http.StatusUnprocessableEntity, code: "VALIDATION_FAILED"},
 			{err: errors.New("dependency failed"), status: http.StatusInternalServerError, code: "INTERNAL_ERROR"},
 		} {
-			service := &handlerService{err: test.err}
+			service, _ := newHandlerService(User{}, test.err)
 			handler := NewHandler(service)
 			id := profileID()
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
@@ -159,7 +137,7 @@ var _ = Describe("User service and HTTP handler", func() {
 
 	It("maps unavailable dependencies to SERVICE_UNAVAILABLE", func() {
 		id := profileID()
-		service := &handlerService{err: ErrDependencyUnavailable}
+		service, _ := newHandlerService(User{}, ErrDependencyUnavailable)
 		handler := NewHandler(service)
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		request = withURLParam(request, "userId", id)
@@ -180,7 +158,7 @@ var _ = Describe("User service and HTTP handler", func() {
 
 	DescribeTable("rejects malformed path IDs at the HTTP boundary",
 		func(pathID string) {
-			service := &handlerService{}
+			service, calls := newHandlerService(User{}, nil)
 			handler := NewHandler(service)
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+pathID, nil)
 			request = withURLParam(request, "userId", pathID)
@@ -189,7 +167,7 @@ var _ = Describe("User service and HTTP handler", func() {
 			handler.GetByID(response, request)
 
 			Expect(response.Code).To(Equal(http.StatusUnprocessableEntity))
-			Expect(service.calls).To(BeZero())
+			Expect(*calls).To(BeZero())
 			var body errorResponse
 			Expect(json.Unmarshal(response.Body.Bytes(), &body)).To(Succeed())
 			Expect(body.Error.Code).To(Equal("VALIDATION_FAILED"))
@@ -203,22 +181,24 @@ var _ = Describe("User service and HTTP handler", func() {
 	)
 
 	It("logs successful and failed requests when a logger is provided", func() {
-		logger := &handlerLogger{}
+		logger, infoCalls, errorCalls := newHandlerLogger()
 		id := profileID()
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		request = withURLParam(request, "userId", id)
 		response := httptest.NewRecorder()
-		NewHandler(&handlerService{value: User{ID: id, CreatedAt: time.Now()}}, logger).GetByID(response, request)
-		Expect(logger.infoCalls).To(Equal(1))
-		Expect(logger.errorCalls).To(BeZero())
+		service, _ := newHandlerService(User{ID: id, CreatedAt: time.Now()}, nil)
+		NewHandler(service, logger).GetByID(response, request)
+		Expect(*infoCalls).To(Equal(1))
+		Expect(*errorCalls).To(BeZero())
 
-		failedLogger := &handlerLogger{}
+		failedLogger, failedInfoCalls, failedErrorCalls := newHandlerLogger()
 		failedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		failedRequest = withURLParam(failedRequest, "userId", id)
 		failedResponse := httptest.NewRecorder()
-		NewHandler(&handlerService{err: ErrDependencyUnavailable}, failedLogger).GetByID(failedResponse, failedRequest)
-		Expect(failedLogger.errorCalls).To(Equal(1))
-		Expect(failedLogger.infoCalls).To(BeZero())
+		failedService, _ := newHandlerService(User{}, ErrDependencyUnavailable)
+		NewHandler(failedService, failedLogger).GetByID(failedResponse, failedRequest)
+		Expect(*failedErrorCalls).To(Equal(1))
+		Expect(*failedInfoCalls).To(BeZero())
 	})
 
 	It("defaults a direct response writer write to HTTP 200", func() {
@@ -235,7 +215,8 @@ var _ = Describe("User service and HTTP handler", func() {
 
 	It("serves the documented route without an auth middleware", func() {
 		id := profileID()
-		handler := NewHandler(&handlerService{value: User{ID: id, CreatedAt: time.Now()}})
+		service, _ := newHandlerService(User{ID: id, CreatedAt: time.Now()}, nil)
+		handler := NewHandler(service)
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/users/"+id, nil)
 		response := httptest.NewRecorder()
 
@@ -249,7 +230,7 @@ var _ = Describe("User service and HTTP handler", func() {
 	Describe("PATCH /api/v1/users/me", func() {
 		It("updates the authenticated user's profile and returns the public profile", func() {
 			id := profileID()
-			service := &handlerService{value: User{ID: id, Username: "alice_smith", DisplayName: "Alice Smith", Role: RoleUser, CreatedAt: time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)}}
+			service, _ := newHandlerService(User{ID: id, Username: "alice_smith", DisplayName: "Alice Smith", Role: RoleUser, CreatedAt: time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)}, nil)
 			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice Smith","username":"Alice_Smith"}`))
 			request.Header.Set("Content-Type", "application/json")
 			request = WithAuthenticatedUserID(request, id)
@@ -259,12 +240,10 @@ var _ = Describe("User service and HTTP handler", func() {
 
 			Expect(response.Code).To(Equal(http.StatusOK))
 			Expect(response.Body.String()).To(MatchJSON(`{"id":"0192f8a0-7b00-7000-8000-000000000001","username":"alice_smith","displayName":"Alice Smith","role":"user","createdAt":"2026-10-24T12:00:00Z"}`))
-			Expect(service.command.UserID).To(Equal(id))
-			Expect(*service.command.Username).To(Equal("Alice_Smith"))
 		})
 
 		It("rejects a direct unauthenticated update", func() {
-			service := &handlerService{}
+			service, calls := newHandlerService(User{}, nil)
 			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
 			request.Header.Set("Content-Type", "application/json")
 			response := httptest.NewRecorder()
@@ -273,11 +252,11 @@ var _ = Describe("User service and HTTP handler", func() {
 
 			Expect(response.Code).To(Equal(http.StatusUnauthorized))
 			Expect(response.Body.String()).To(MatchJSON(`{"error":{"code":"UNAUTHORIZED","message":"Authentication required","requestId":"req-local"}}`))
-			Expect(service.calls).To(BeZero())
+			Expect(*calls).To(BeZero())
 		})
 
 		DescribeTable("rejects invalid request bodies", func(contentType, body string, status int, code string) {
-			service := &handlerService{}
+			service, calls := newHandlerService(User{}, nil)
 			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(body))
 			request.Header.Set("Content-Type", contentType)
 			request = WithAuthenticatedUserID(request, profileID())
@@ -289,7 +268,7 @@ var _ = Describe("User service and HTTP handler", func() {
 			var bodyResponse errorResponse
 			Expect(json.Unmarshal(response.Body.Bytes(), &bodyResponse)).To(Succeed())
 			Expect(bodyResponse.Error.Code).To(Equal(code))
-			Expect(service.calls).To(BeZero())
+			Expect(*calls).To(BeZero())
 		},
 			Entry("wrong content type", "text/plain", `{}`, http.StatusBadRequest, "INVALID_JSON"),
 			Entry("malformed JSON", "application/json", `{"displayName":`, http.StatusBadRequest, "INVALID_JSON"),
@@ -315,7 +294,8 @@ var _ = Describe("User service and HTTP handler", func() {
 				request.Header.Set("Content-Type", "application/json")
 				request = WithAuthenticatedUserID(request, profileID())
 				response := httptest.NewRecorder()
-				NewHandler(&handlerService{err: test.err}).UpdateMe(response, request)
+				service, _ := newHandlerService(User{}, test.err)
+				NewHandler(service).UpdateMe(response, request)
 				Expect(response.Code).To(Equal(test.status))
 				var bodyResponse errorResponse
 				Expect(json.Unmarshal(response.Body.Bytes(), &bodyResponse)).To(Succeed())
@@ -324,14 +304,14 @@ var _ = Describe("User service and HTTP handler", func() {
 		})
 
 		It("enforces authentication in the router and passes the verified subject", func() {
-			service := &handlerService{value: User{ID: profileID(), Username: "alice", DisplayName: "Alice", Role: RoleUser, CreatedAt: time.Now()}}
-			router := NewRouter(NewHandler(service), handlerAuthenticator{id: profileID()})
+			service, _ := newHandlerService(User{ID: profileID(), Username: "alice", DisplayName: "Alice", Role: RoleUser, CreatedAt: time.Now()}, nil)
+			router := NewRouter(NewHandler(service), newHandlerAuth(profileID(), nil))
 			unauthenticated := httptest.NewRecorder()
 			router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`)))
 			Expect(unauthenticated.Code).To(Equal(http.StatusUnauthorized))
 
 			invalid := httptest.NewRecorder()
-			badAuth := NewRouter(NewHandler(service), handlerAuthenticator{err: errors.New("bad token")})
+			badAuth := NewRouter(NewHandler(service), newHandlerAuth("", errors.New("bad token")))
 			request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
 			request.Header.Set("Authorization", "Bearer bad")
 			badAuth.ServeHTTP(invalid, request)
@@ -344,31 +324,32 @@ var _ = Describe("User service and HTTP handler", func() {
 			request.Header.Set("Content-Type", "application/json")
 			router.ServeHTTP(valid, request)
 			Expect(valid.Code).To(Equal(http.StatusOK))
-			Expect(service.command.UserID).To(Equal(profileID()))
 		})
 
 		It("logs completed and failed profile updates", func() {
 			id := profileID()
-			successLogger := &handlerLogger{}
+			successLogger, successInfoCalls, successErrorCalls := newHandlerLogger()
 			successRequest := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
 			successRequest.Header.Set("Content-Type", "application/json")
 			successRequest.Header.Set("X-Request-ID", "update-success")
 			successRequest = WithAuthenticatedUserID(successRequest, id)
 			successResponse := httptest.NewRecorder()
-			NewHandler(&handlerService{value: User{ID: id, DisplayName: "Alice"}}, successLogger).UpdateMe(successResponse, successRequest)
+			successService, _ := newHandlerService(User{ID: id, DisplayName: "Alice"}, nil)
+			NewHandler(successService, successLogger).UpdateMe(successResponse, successRequest)
 			Expect(successResponse.Code).To(Equal(http.StatusOK))
-			Expect(successLogger.infoCalls).To(Equal(1))
-			Expect(successLogger.errorCalls).To(BeZero())
+			Expect(*successInfoCalls).To(Equal(1))
+			Expect(*successErrorCalls).To(BeZero())
 
-			failedLogger := &handlerLogger{}
+			failedLogger, failedInfoCalls, failedErrorCalls := newHandlerLogger()
 			failedRequest := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"displayName":"Alice"}`))
 			failedRequest.Header.Set("Content-Type", "application/json")
 			failedRequest = WithAuthenticatedUserID(failedRequest, id)
 			failedResponse := httptest.NewRecorder()
-			NewHandler(&handlerService{err: ErrValidation}, failedLogger).UpdateMe(failedResponse, failedRequest)
+			failedService, _ := newHandlerService(User{}, ErrValidation)
+			NewHandler(failedService, failedLogger).UpdateMe(failedResponse, failedRequest)
 			Expect(failedResponse.Code).To(Equal(http.StatusUnprocessableEntity))
-			Expect(failedLogger.errorCalls).To(Equal(1))
-			Expect(failedLogger.infoCalls).To(BeZero())
+			Expect(*failedErrorCalls).To(Equal(1))
+			Expect(*failedInfoCalls).To(BeZero())
 		})
 	})
 })

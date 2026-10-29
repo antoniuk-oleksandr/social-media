@@ -34,7 +34,7 @@ var _ = Describe("login persistence", func() {
 
 		access := platformjwt.Access{Keys: platformjwt.StaticKey{KID: "test-key", Secret: []byte("test-secret")}, KID: "test-key", Issuer: "social-media", Audience: "social-media-api", TTL: 15 * time.Minute, ID: func() string { return "0192f8a0-7b00-7000-8000-000000000002" }}
 		for _, login := range []string{registration.User.Username, strings.ToUpper(registration.User.Email)} {
-			svc := authdomain.Service{LoginStore: integrationStore(), Verifier: password.Bcrypt{}, IDs: fixedID("login-session-" + login), Clock: fixedClock{at: time.Now().UTC()}, Access: access, Opaque: token.Opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+			svc := authdomain.Service{LoginStore: integrationStore(), Verifier: password.Bcrypt{}, IDs: newIntegrationID("login-session-" + login), Clock: fixedIntegrationClock(time.Now().UTC()), Access: access, Opaque: token.Opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 			result, loginErr := svc.Login(context.Background(), authdomain.LoginCommand{Login: login, Password: "correct-password"})
 			Expect(loginErr).NotTo(HaveOccurred())
 			Expect(result.Tokens.RefreshToken).NotTo(BeEmpty())
@@ -75,18 +75,10 @@ var _ = Describe("login persistence", func() {
 		registration := fixtures.Registration("integration-invalid-user", "integration_invalid", "integration-invalid@example.com")
 		registration.User.PasswordHash = hash
 		Expect(store.Register(context.Background(), registration)).To(Succeed())
-		svc := authdomain.Service{LoginStore: store, Verifier: password.Bcrypt{}, IDs: fixedID("invalid-session"), Clock: fixedClock{at: time.Now().UTC()}, Access: platformjwt.Access{Keys: platformjwt.StaticKey{KID: "k", Secret: []byte("secret")}}, Opaque: token.Opaque{}, RefreshTTL: 7 * 24 * time.Hour}
+		svc := authdomain.Service{LoginStore: store, Verifier: password.Bcrypt{}, IDs: newIntegrationID("invalid-session"), Clock: fixedIntegrationClock(time.Now().UTC()), Access: platformjwt.Access{Keys: platformjwt.StaticKey{KID: "k", Secret: []byte("secret")}}, Opaque: token.Opaque{}, RefreshTTL: 7 * 24 * time.Hour}
 		_, missingErr := svc.Login(context.Background(), authdomain.LoginCommand{Login: "nobody@example.com", Password: "correct-password"})
 		_, wrongErr := svc.Login(context.Background(), authdomain.LoginCommand{Login: registration.User.Email, Password: "wrong-password"})
 		Expect(errors.Is(missingErr, authdomain.ErrInvalidCredentials)).To(BeTrue())
 		Expect(errors.Is(wrongErr, authdomain.ErrInvalidCredentials)).To(BeTrue())
 	})
 })
-
-type fixedID string
-
-func (i fixedID) New() (string, error) { return "0192f8a0-7b00-7000-8000-000000000020", nil }
-
-type fixedClock struct{ at time.Time }
-
-func (c fixedClock) Now() time.Time { return c.at }

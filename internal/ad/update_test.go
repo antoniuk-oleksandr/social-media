@@ -25,8 +25,8 @@ var _ = Describe("PATCH /api/v1/ads/{adId}", func() {
 	}
 
 	It("updates content and status through the authenticated admin route", func() {
-		repository := &fakeRepository{value: advertisement}
-		router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{now: now})), fakeAuth{id: adminID})
+		repository := newRepositoryFixture(advertisement, nil, ListResult{})
+		router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(now))), newAdminAuth(adminID, nil))
 		request := httptest.NewRequest(http.MethodPatch, "/api/v1/ads/"+adID, strings.NewReader(`{"content":"new content","status":"paused"}`))
 		request.Header.Set("Authorization", "Bearer admin-token")
 		request.Header.Set("Content-Type", "application/json")
@@ -39,15 +39,15 @@ var _ = Describe("PATCH /api/v1/ads/{adId}", func() {
 	})
 
 	It("returns conflict for an invalid lifecycle transition", func() {
-		repository := &fakeRepository{value: advertisement}
-		service := NewService(repository, fakeIDs{}, fakeClock{now: now})
+		repository := newRepositoryFixture(advertisement, nil, ListResult{})
+		service := NewService(repository, newAdIDs("", nil), newAdClock(now))
 		_, err := service.Update(context.Background(), UpdateCommand{AdID: adID, Status: statusPointer(StatusDraft)})
 		Expect(err).To(MatchError(ErrInvalidState))
 	})
 
 	It("validates changed URLs and schedules", func() {
-		repository := &fakeRepository{value: advertisement}
-		service := NewService(repository, fakeIDs{}, fakeClock{now: now})
+		repository := newRepositoryFixture(advertisement, nil, ListResult{})
+		service := NewService(repository, newAdIDs("", nil), newAdClock(now))
 		badURL := "http://example.com"
 		_, err := service.Update(context.Background(), UpdateCommand{AdID: adID, TargetURL: &badURL})
 		Expect(err).To(MatchError(ErrValidation))
@@ -76,15 +76,15 @@ var _ = Describe("PATCH /api/v1/ads/{adId}", func() {
 				value.StartsAt = now.Add(-time.Hour)
 				value.EndsAt = now.Add(time.Hour)
 			}
-			_, err := NewService(&fakeRepository{value: value}, fakeIDs{}, fakeClock{now: now}).Update(context.Background(), UpdateCommand{AdID: adID, Status: statusPointer(transition.to)})
+			_, err := NewService(newRepositoryFixture(value, nil, ListResult{}), newAdIDs("", nil), newAdClock(now)).Update(context.Background(), UpdateCommand{AdID: adID, Status: statusPointer(transition.to)})
 			Expect(err).NotTo(HaveOccurred(), "%s to %s", transition.from, transition.to)
 		}
 	})
 
 	It("rejects invalid commands before persistence and propagates repository errors", func() {
 		for _, command := range []UpdateCommand{{AdID: "123", Content: stringPointer("new")}, {AdID: adID}} {
-			repository := &fakeRepository{value: advertisement}
-			_, err := NewService(repository, fakeIDs{}, fakeClock{now: now}).Update(context.Background(), command)
+			repository := newRepositoryFixture(advertisement, nil, ListResult{})
+			_, err := NewService(repository, newAdIDs("", nil), newAdClock(now)).Update(context.Background(), command)
 			Expect(err).To(MatchError(func() error {
 				if command.AdID == adID {
 					return ErrValidation
@@ -93,8 +93,8 @@ var _ = Describe("PATCH /api/v1/ads/{adId}", func() {
 			}()))
 			Expect(repository.getCalls).To(Equal(0))
 		}
-		repository := &fakeRepository{value: advertisement, err: ErrNotFound}
-		_, err := NewService(repository, fakeIDs{}, fakeClock{now: now}).Update(context.Background(), UpdateCommand{AdID: adID, Content: stringPointer("new")})
+		repository := newRepositoryFixture(advertisement, ErrNotFound, ListResult{})
+		_, err := NewService(repository, newAdIDs("", nil), newAdClock(now)).Update(context.Background(), UpdateCommand{AdID: adID, Content: stringPointer("new")})
 		Expect(err).To(MatchError(ErrNotFound))
 	})
 
@@ -128,34 +128,34 @@ var _ = Describe("PATCH /api/v1/ads/{adId}", func() {
 			{ErrDependencyUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"},
 			{errors.New("unexpected failure"), http.StatusInternalServerError, "INTERNAL_ERROR"},
 		} {
-			repository := &fakeRepository{value: advertisement, err: test.err}
-			router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{now: now})), fakeAuth{id: adminID})
+			repository := newRepositoryFixture(advertisement, test.err, ListResult{})
+			router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(now))), newAdminAuth(adminID, nil))
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, validRequest(`{"content":"new content"}`))
 			Expect(response.Code).To(Equal(test.status))
 			Expect(response.Body.String()).To(ContainSubstring(`"code":"` + test.code + `"`))
 		}
 		response := httptest.NewRecorder()
-		NewHandler(NewService(&fakeRepository{}, fakeIDs{}, fakeClock{now: now})).Update(response, validRequest("{"))
+		NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs("", nil), newAdClock(now))).Update(response, validRequest("{"))
 		Expect(response.Code).To(Equal(http.StatusBadRequest))
 		Expect(response.Body.String()).To(ContainSubstring(`"code":"INVALID_JSON"`))
 
 		response = httptest.NewRecorder()
 		noContentType := validRequest(`{"content":"new content"}`)
 		noContentType.Header.Del("Content-Type")
-		NewHandler(NewService(&fakeRepository{}, fakeIDs{}, fakeClock{now: now})).Update(response, noContentType)
+		NewHandler(NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs("", nil), newAdClock(now))).Update(response, noContentType)
 		Expect(response.Code).To(Equal(http.StatusBadRequest))
 
 		response = httptest.NewRecorder()
 		missingAuth := httptest.NewRequest(http.MethodPatch, "/api/v1/ads/"+adID, strings.NewReader(`{"content":"new content"}`))
 		missingAuth.Header.Set("Content-Type", "application/json")
-		NewRouter(NewHandler(NewService(&fakeRepository{value: advertisement}, fakeIDs{}, fakeClock{now: now})), fakeAuth{id: adminID}).ServeHTTP(response, missingAuth)
+		NewRouter(NewHandler(NewService(newRepositoryFixture(advertisement, nil, ListResult{}), newAdIDs("", nil), newAdClock(now))), newAdminAuth(adminID, nil)).ServeHTTP(response, missingAuth)
 		Expect(response.Code).To(Equal(http.StatusUnauthorized))
 	})
 
 	It("returns the documented 404 response when persistence reports not found", func() {
-		repository := &fakeRepository{value: advertisement, err: ErrNotFound}
-		router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{now: now})), fakeAuth{id: adminID})
+		repository := newRepositoryFixture(advertisement, ErrNotFound, ListResult{})
+		router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(now))), newAdminAuth(adminID, nil))
 		request := httptest.NewRequest(http.MethodPatch, "/api/v1/ads/"+adID, strings.NewReader(`{"content":"new content"}`))
 		request.Header.Set("Authorization", "Bearer admin-token")
 		request.Header.Set("Content-Type", "application/json")

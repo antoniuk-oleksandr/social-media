@@ -7,59 +7,36 @@ import (
 	"fmt"
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
-	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"time"
 )
 
-type hs struct{}
-
-func (hs) Hash(string) (string, error) { return "h", nil }
-
-type hi struct{ n int }
-
-func (i *hi) New() (string, error) { i.n++; return "0192f8a0-7b00-7000-8000-000000000001", nil }
-
-type hc struct{}
-
-func (hc) Now() time.Time { return time.Unix(1, 0) }
-
-type ha struct{}
-
-func (ha) Issue(context.Context, user.User, time.Time) (string, error) { return "a", nil }
-
-type ho struct{}
-
-func (ho) Generate() (string, string, error) { return "r", "rh", nil }
-
-type hstore struct{}
-
-func (hstore) Register(context.Context, auth.Registration) error { return nil }
-
-type recordingLogger struct {
+type loggerState struct {
 	message string
 	fields  []logging.Field
 }
 
-func (l *recordingLogger) Info(message string, fields ...logging.Field) error {
-	l.message = message
-	l.fields = fields
-	return nil
+func newLogger(ctrl *gomock.Controller) (*MockLogger, *loggerState) {
+	state := &loggerState{}
+	logger := NewMockLogger(ctrl)
+	logger.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(message string, fields ...logging.Field) error {
+		state.message, state.fields = message, fields
+		return nil
+	})
+	logger.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(message string, fields ...logging.Field) error {
+		state.message, state.fields = message, fields
+		return nil
+	})
+	logger.EXPECT().Sync().AnyTimes().Return(nil)
+	return logger, state
 }
 
-func (l *recordingLogger) Error(message string, fields ...logging.Field) error {
-	l.message = message
-	l.fields = fields
-	return nil
-}
-
-func (l *recordingLogger) Sync() error { return nil }
-
-func (l *recordingLogger) field(key string) (any, bool) {
+func (l *loggerState) field(key string) (any, bool) {
 	for _, field := range l.fields {
 		if field.Key == key {
 			return field.Value, true
@@ -68,8 +45,20 @@ func (l *recordingLogger) field(key string) (any, bool) {
 	return nil, false
 }
 func handler() *auth.Handler {
-	i := &hi{}
-	s := &auth.Service{Store: hstore{}, Hasher: hs{}, IDs: i, Clock: hc{}, Access: ha{}, Opaque: ho{}, AccessTTL: 900 * time.Second, RefreshTTL: 7 * 24 * time.Hour}
+	ctrl := gomock.NewController(GinkgoT())
+	store := NewMockRegistrationStore(ctrl)
+	store.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	hasher := NewMockPasswordHasher(ctrl)
+	hasher.EXPECT().Hash(gomock.Any()).AnyTimes().Return("h", nil)
+	ids := NewMockIDGenerator(ctrl)
+	ids.EXPECT().New().AnyTimes().Return("0192f8a0-7b00-7000-8000-000000000001", nil)
+	clock := NewMockClock(ctrl)
+	clock.EXPECT().Now().AnyTimes().Return(time.Unix(1, 0))
+	access := NewMockAccessTokenIssuer(ctrl)
+	access.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("a", nil)
+	opaque := NewMockOpaqueTokenGenerator(ctrl)
+	opaque.EXPECT().Generate().AnyTimes().Return("r", "rh", nil)
+	s := &auth.Service{Store: store, Hasher: hasher, IDs: ids, Clock: clock, Access: access, Opaque: opaque, AccessTTL: 900 * time.Second, RefreshTTL: 7 * 24 * time.Hour}
 	h := auth.Handler{Service: s}
 	return &h
 }
@@ -102,23 +91,19 @@ var _ = Describe("RegisterHandlerRejectsUnknownFields", func() {
 	})
 })
 
-type countingService struct {
-	err   error
-	calls int
-}
-
-func (s *countingService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
-	s.calls++
-	return auth.RegisterResult{}, s.err
-}
-
-func (s *countingService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
-	s.calls++
-	return auth.RegisterResult{}, s.err
-}
-func (s *countingService) Logout(context.Context, string) error {
-	s.calls++
-	return s.err
+func newCountingService(ctrl *gomock.Controller, err error) (*MockServicePort, *int) {
+	service := NewMockServicePort(ctrl)
+	calls := new(int)
+	service.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
+		*calls++
+		return auth.RegisterResult{}, err
+	})
+	service.EXPECT().Login(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
+		*calls++
+		return auth.RegisterResult{}, err
+	})
+	service.EXPECT().Logout(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string) error { *calls++; return err })
+	return service, calls
 }
 
 func errorBody(w *httptest.ResponseRecorder) auth.ErrorResponse {
@@ -149,7 +134,7 @@ var _ = Describe("RegisterHandlerStrictJSONAndHTTPMappings", func() {
 
 		for _, tt := range tests {
 			{
-				service := &countingService{}
+				service, calls := newCountingService(gomock.NewController(GinkgoT()), nil)
 				h := auth.Handler{Service: service}
 				r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(tt.body))
 				contentType := tt.contentType
@@ -168,8 +153,8 @@ var _ = Describe("RegisterHandlerStrictJSONAndHTTPMappings", func() {
 				if got.Error.Code != tt.code || got.Error.RequestID != "req-test" {
 					Expect(false).To(BeTrue(), fmt.Sprintf("error = %+v, want code %q and request ID req-test", got.Error, tt.code))
 				}
-				if service.calls != 0 {
-					Expect(false).To(BeTrue(), fmt.Sprintf("service calls = %d, want 0", service.calls))
+				if *calls != 0 {
+					Expect(false).To(BeTrue(), fmt.Sprintf("service calls = %d, want 0", *calls))
 				}
 			}
 		}
@@ -194,7 +179,7 @@ var _ = Describe("RegisterHandlerMapsServiceErrors", func() {
 
 		for _, tt := range tests {
 			{
-				service := &countingService{err: tt.err}
+				service, calls := newCountingService(gomock.NewController(GinkgoT()), tt.err)
 				h := auth.Handler{Service: service}
 				r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"alice","email":"alice@example.com","password":"123456789012","displayName":"Alice"}`))
 				r.Header.Set("Content-Type", "application/json")
@@ -209,8 +194,8 @@ var _ = Describe("RegisterHandlerMapsServiceErrors", func() {
 				if got.Error.Code != tt.code || got.Error.RequestID != "req-error" {
 					Expect(false).To(BeTrue(), fmt.Sprintf("error = %+v, want code %q and request ID req-error", got.Error, tt.code))
 				}
-				if service.calls != 1 {
-					Expect(false).To(BeTrue(), fmt.Sprintf("service calls = %d, want 1", service.calls))
+				if *calls != 1 {
+					Expect(false).To(BeTrue(), fmt.Sprintf("service calls = %d, want 1", *calls))
 				}
 			}
 		}
@@ -220,8 +205,8 @@ var _ = Describe("RegisterHandlerMapsServiceErrors", func() {
 
 var _ = Describe("RegisterHandlerLogsServiceFailures", func() {
 	It("logs the request ID and mapped dependency failure", func() {
-		logger := &recordingLogger{}
-		service := &countingService{err: auth.ErrDependencyUnavailable}
+		logger, loggerState := newLogger(gomock.NewController(GinkgoT()))
+		service, _ := newCountingService(gomock.NewController(GinkgoT()), auth.ErrDependencyUnavailable)
 		h := auth.Handler{Service: service, Logger: logger}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"alice","email":"alice@example.com","password":"123456789012","displayName":"Alice"}`))
 		r.Header.Set("Content-Type", "application/json")
@@ -231,11 +216,11 @@ var _ = Describe("RegisterHandlerLogsServiceFailures", func() {
 		h.Register(w, r)
 
 		Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
-		Expect(logger.message).To(Equal("registration request failed"))
-		requestID, found := logger.field("request_id")
+		Expect(loggerState.message).To(Equal("registration request failed"))
+		requestID, found := loggerState.field("request_id")
 		Expect(found).To(BeTrue())
 		Expect(requestID).To(Equal("req-dependency"))
-		code, found := logger.field("error_code")
+		code, found := loggerState.field("error_code")
 		Expect(found).To(BeTrue())
 		Expect(code).To(Equal("SERVICE_UNAVAILABLE"))
 	})
@@ -243,8 +228,8 @@ var _ = Describe("RegisterHandlerLogsServiceFailures", func() {
 
 var _ = Describe("LoginHandlerLogging", func() {
 	It("records safe structured fields without credentials or secrets", func() {
-		logger := &recordingLogger{}
-		service := &countingService{err: auth.ErrInvalidCredentials}
+		logger, loggerState := newLogger(gomock.NewController(GinkgoT()))
+		service, _ := newCountingService(gomock.NewController(GinkgoT()), auth.ErrInvalidCredentials)
 		h := auth.Handler{Service: service, Logger: logger}
 		password := "correct-password"
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice@example.com","password":"`+password+`"}`))
@@ -255,20 +240,20 @@ var _ = Describe("LoginHandlerLogging", func() {
 		h.Login(w, r)
 
 		Expect(w.Code).To(Equal(http.StatusUnauthorized))
-		Expect(logger.message).To(Equal("login request completed"))
+		Expect(loggerState.message).To(Equal("login request completed"))
 		for _, field := range []string{"request_id", "route", "status", "duration", "error_code"} {
-			_, found := logger.field(field)
+			_, found := loggerState.field(field)
 			Expect(found).To(BeTrue(), field)
 		}
-		requestID, _ := logger.field("request_id")
+		requestID, _ := loggerState.field("request_id")
 		Expect(requestID).To(Equal("req-login"))
-		route, _ := logger.field("route")
+		route, _ := loggerState.field("route")
 		Expect(route).To(Equal("POST /api/v1/auth/login"))
-		status, _ := logger.field("status")
+		status, _ := loggerState.field("status")
 		Expect(status).To(Equal("401"))
-		code, _ := logger.field("error_code")
+		code, _ := loggerState.field("error_code")
 		Expect(code).To(Equal("INVALID_CREDENTIALS"))
-		for _, field := range logger.fields {
+		for _, field := range loggerState.fields {
 			Expect(field.Key).NotTo(Or(Equal("login"), Equal("password"), Equal("authorization"), Equal("access_token"), Equal("refresh_token")))
 			Expect(field.Value).NotTo(Equal(password))
 			Expect(field.Value).NotTo(Equal("alice@example.com"))
@@ -278,8 +263,8 @@ var _ = Describe("LoginHandlerLogging", func() {
 
 var _ = Describe("LoginHandlerInternalFailureLogging", func() {
 	It("uses Error level with safe dependency context", func() {
-		logger := &recordingLogger{}
-		service := &countingService{err: errors.New("database credentials leaked?")}
+		logger, loggerState := newLogger(gomock.NewController(GinkgoT()))
+		service, _ := newCountingService(gomock.NewController(GinkgoT()), errors.New("database credentials leaked?"))
 		h := auth.Handler{Service: service, Logger: logger}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice","password":"correct-password"}`))
 		r.Header.Set("Content-Type", "application/json")
@@ -289,25 +274,25 @@ var _ = Describe("LoginHandlerInternalFailureLogging", func() {
 		h.Login(w, r)
 
 		Expect(w.Code).To(Equal(http.StatusInternalServerError))
-		Expect(logger.message).To(Equal("login internal failure"))
-		errorValue, found := logger.field("error")
+		Expect(loggerState.message).To(Equal("login internal failure"))
+		errorValue, found := loggerState.field("error")
 		Expect(found).To(BeTrue())
 		Expect(errorValue).To(Equal("database credentials leaked?"))
-		Expect(logger.field("password")).To(BeNil())
+		value, found := loggerState.field("password")
+		Expect(found).To(BeFalse())
+		Expect(value).To(BeNil())
 	})
 })
-
-type failingHandlerWriter struct{ header http.Header }
-
-func (w *failingHandlerWriter) Header() http.Header       { return w.header }
-func (w *failingHandlerWriter) WriteHeader(int)           {}
-func (w *failingHandlerWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 var _ = Describe("RegisterHandlerHandlesResponseWriteFailure", func() {
 	It("runs the test", func() {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"alice","email":"alice@example.com","password":"123456789012","displayName":"Alice"}`))
 		r.Header.Set("Content-Type", "application/json")
-		handler().Register(&failingHandlerWriter{header: make(http.Header)}, r)
+		writer := NewMockResponseWriter(gomock.NewController(GinkgoT()))
+		writer.EXPECT().Header().Return(make(http.Header)).AnyTimes()
+		writer.EXPECT().WriteHeader(gomock.Any()).AnyTimes()
+		writer.EXPECT().Write(gomock.Any()).Return(0, errors.New("write failed")).AnyTimes()
+		handler().Register(writer, r)
 
 	})
 })

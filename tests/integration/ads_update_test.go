@@ -22,7 +22,7 @@ var _ = Describe("PATCH advertisement persistence", func() {
 		adID := "0192f8a0-7b00-7000-8000-000000000821"
 		adminID := "0192f8a0-7b00-7000-8000-000000000822"
 		repository := &addb.Repository{Client: userIntegrationSuite.Client, TableName: adsTable}
-		service := adfeature.NewService(repository, integrationIDGenerator{id: adID}, integrationClock{value: now})
+		service := adfeature.NewService(repository, newIntegrationID(adID), fixedIntegrationClock(now))
 
 		created, err := service.Create(context.Background(), adfeature.CreateCommand{
 			AdminID: adminID, Advertiser: "Example Company", Content: "Original copy", TargetURL: "https://example.com/original",

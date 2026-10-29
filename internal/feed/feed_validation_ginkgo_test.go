@@ -28,7 +28,7 @@ var _ = Describe("feed request validation", func() {
 	})
 
 	It("rejects invalid RFC token68 values before authenticating", func() {
-		router := NewRouter(NewHandler(NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1")), fakeAuthenticator{id: "user-1"})
+		router := NewRouter(NewHandler(newFeedService(makePosts(1), nil, time.UnixMilli(3000))), newFeedAuthenticator("user-1", nil))
 		for _, header := range []string{"Bearer", "Bearer ", "Bearer =", "Bearer ==", "Bearer token ", "Bearer tok en", "Bearer tok\ten", "Bearer token==x", "bearer token"} {
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/feed", nil)
@@ -40,19 +40,13 @@ var _ = Describe("feed request validation", func() {
 
 	It("includes the looked-up author and translates lookup failures", func() {
 		author := user.User{ID: fmtID(1000), Username: "alice", DisplayName: "Alice"}
-		service := NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1", fixedAuthorSource{value: author})
+		service := newFeedServiceWithAuthors(makePosts(1), nil, time.UnixMilli(3000), map[string]user.User{author.ID: author}, nil)
 		result, err := service.Build(context.Background(), Query{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Items[0].Author).To(Equal(&author))
 
-		failed := NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1", authorFailureSource{err: errors.New("lookup failed")})
+		failed := newFeedServiceWithAuthors(makePosts(1), nil, time.UnixMilli(3000), nil, errors.New("lookup failed"))
 		_, err = failed.Build(context.Background(), Query{})
 		Expect(err).To(MatchError(ErrDependencyUnavailable))
 	})
 })
-
-type authorFailureSource struct{ err error }
-
-func (s authorFailureSource) GetByIDs(context.Context, []string) (map[string]user.User, error) {
-	return nil, s.err
-}

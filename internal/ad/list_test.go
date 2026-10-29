@@ -21,13 +21,13 @@ import (
 var _ = Describe("GET /api/v1/ads", func() {
 	const adminID = "0192f8a0-7b00-7000-8000-000000000901"
 
-	newRouter := func(repository *fakeRepository, authError error) http.Handler {
-		service := NewService(repository, fakeIDs{value: adminID}, fakeClock{})
-		return NewRouter(NewHandler(service), fakeAuth{id: adminID, err: authError})
+	newRouter := func(repository *repositoryFixture, authError error) http.Handler {
+		service := NewService(repository, newAdIDs(adminID, nil), newAdClock(time.Time{}))
+		return NewRouter(NewHandler(service), newAdminAuth(adminID, authError))
 	}
 
 	It("requires an administrator and returns 403 for a valid regular-user token", func() {
-		repository := &fakeRepository{}
+		repository := newRepositoryFixture(Advertisement{}, nil, ListResult{})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads", nil)
 		request.Header.Set("Authorization", "Bearer user-token")
 
@@ -40,7 +40,7 @@ var _ = Describe("GET /api/v1/ads", func() {
 	})
 
 	It("uses active status and the default limit when query parameters are omitted", func() {
-		repository := &fakeRepository{listResult: ListResult{Items: []Advertisement{}}}
+		repository := newRepositoryFixture(Advertisement{}, nil, ListResult{Items: []Advertisement{}})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads", nil)
 		request.Header.Set("Authorization", "Bearer admin-token")
 
@@ -53,7 +53,7 @@ var _ = Describe("GET /api/v1/ads", func() {
 	})
 
 	DescribeTable("rejects invalid status and limit values", func(query string) {
-		repository := &fakeRepository{}
+		repository := newRepositoryFixture(Advertisement{}, nil, ListResult{})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads?"+query, nil)
 		request.Header.Set("Authorization", "Bearer admin-token")
 
@@ -75,7 +75,7 @@ var _ = Describe("GET /api/v1/ads", func() {
 
 	It("passes a valid status, limit, and cursor to the service and returns pagination metadata", func() {
 		cursor := validListCursor(adminID, StatusPaused, 7)
-		repository := &fakeRepository{listResult: ListResult{Items: []Advertisement{{ID: adminID, Type: "ad", Status: StatusActive}}, NextCursor: cursor, HasMore: true}}
+		repository := newRepositoryFixture(Advertisement{ID: adminID, Type: "ad", Status: StatusActive}, nil, ListResult{Items: []Advertisement{{ID: adminID, Type: "ad", Status: StatusActive}}, NextCursor: cursor, HasMore: true})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads?status=paused&limit=7&cursor="+cursor, nil)
 		request.Header.Set("Authorization", "Bearer admin-token")
 
@@ -89,7 +89,7 @@ var _ = Describe("GET /api/v1/ads", func() {
 	})
 
 	DescribeTable("rejects authentication and raw-query boundary failures", func(authorization, query, code string, status int) {
-		repository := &fakeRepository{}
+		repository := newRepositoryFixture(Advertisement{}, nil, ListResult{})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads?"+query, nil)
 		request.Header.Set("Authorization", authorization)
 		request.Header.Set("X-Request-ID", "req-ad-list-boundary")
@@ -117,9 +117,9 @@ var _ = Describe("GET /api/v1/ads", func() {
 	)
 
 	It("rejects a regular user with a structured forbidden response and safe log fields", func() {
-		logger := &recordingLogger{}
-		service := NewService(&fakeRepository{}, fakeIDs{}, fakeClock{})
-		router := NewRouter(NewHandler(service, logger), fakeAuth{err: auth.ErrForbidden})
+		logger := newAdLogger(nil)
+		service := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs("", nil), newAdClock(time.Time{}))
+		router := NewRouter(NewHandler(service, logger), newAdminAuth("", auth.ErrForbidden))
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads", nil)
 		request.Header.Set("Authorization", "Bearer user-token")
 		request.Header.Set("X-Request-ID", "req-ad-list-forbidden")
@@ -136,7 +136,8 @@ var _ = Describe("GET /api/v1/ads", func() {
 		Expect(fieldsText(logger.errorFields)).NotTo(ContainSubstring("user-token"))
 	})
 
-	DescribeTable("maps list errors to documented responses", func(query string, repository *fakeRepository, code string, status int) {
+	DescribeTable("maps list errors to documented responses", func(query string, repositoryErr error, code string, status int) {
+		repository := newRepositoryFixture(Advertisement{}, repositoryErr, ListResult{})
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/ads?"+query, nil)
 		request.Header.Set("Authorization", "Bearer admin-token")
 		response := httptest.NewRecorder()
@@ -144,8 +145,8 @@ var _ = Describe("GET /api/v1/ads", func() {
 		Expect(response.Code).To(Equal(status))
 		Expect(response.Body.String()).To(ContainSubstring(`"code":"` + code + `"`))
 	},
-		Entry("invalid cursor", "cursor=%25%25%25", &fakeRepository{}, "INVALID_CURSOR", http.StatusBadRequest),
-		Entry("dependency failure", "", &fakeRepository{err: ErrDependencyUnavailable}, "SERVICE_UNAVAILABLE", http.StatusServiceUnavailable),
+		Entry("invalid cursor", "cursor=%25%25%25", nil, "INVALID_CURSOR", http.StatusBadRequest),
+		Entry("dependency failure", "", ErrDependencyUnavailable, "SERVICE_UNAVAILABLE", http.StatusServiceUnavailable),
 	)
 })
 
@@ -170,8 +171,8 @@ func validListCursor(userID string, status Status, limit int) string {
 
 var _ = Describe("advertisement list service validation", func() {
 	It("defaults an empty status to active and rejects invalid query values before persistence", func() {
-		repository := &fakeRepository{listResult: ListResult{Items: []Advertisement{}}}
-		service := NewService(repository, fakeIDs{}, fakeClock{})
+		repository := newRepositoryFixture(Advertisement{}, nil, ListResult{Items: []Advertisement{}})
+		service := NewService(repository, newAdIDs("", nil), newAdClock(time.Time{}))
 
 		_, err := service.List(context.Background(), ListQuery{Limit: 3})
 		Expect(err).NotTo(HaveOccurred())
@@ -185,7 +186,7 @@ var _ = Describe("advertisement list service validation", func() {
 	})
 
 	It("rejects malformed, whitespace-padded, and oversized cursors", func() {
-		service := NewService(&fakeRepository{}, fakeIDs{}, fakeClock{})
+		service := NewService(newRepositoryFixture(Advertisement{}, nil, ListResult{}), newAdIDs("", nil), newAdClock(time.Time{}))
 		for _, cursor := range []string{"%%%", " eyJ4IjoxfQ", strings.Repeat("a", 4097)} {
 			_, err := service.List(context.Background(), ListQuery{Status: StatusActive, Limit: 20, Cursor: cursor})
 			Expect(errors.Is(err, ErrInvalidCursor)).To(BeTrue(), cursor)

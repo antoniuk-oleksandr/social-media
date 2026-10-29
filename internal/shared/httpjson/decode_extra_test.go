@@ -1,19 +1,14 @@
 package httpjson
 
 import (
-	"errors"
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 )
-
-type failingReader struct{}
-
-func (failingReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
-func (failingReader) Close() error             { return nil }
 
 var _ = Describe("DecodeRejectsOversizedBody", func() {
 	It("runs the test", func() {
@@ -41,7 +36,9 @@ var _ = Describe("DecodeScansNestedObjectsAndArrays", func() {
 var _ = Describe("DecodePropagatesBodyReadError", func() {
 	It("runs the test", func() {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-		r.Body = failingReader{}
+		reader := NewMockReadCloser(gomock.NewController(GinkgoT()))
+		reader.EXPECT().Read(gomock.Any()).Return(0, fmt.Errorf("read failed"))
+		r.Body = reader
 		if err := Decode(r, &map[string]any{}); err == nil || !strings.Contains(err.Error(), "read failed") {
 			Expect(false).To(BeTrue(), fmt.Sprintf("Decode() error = %v, want read failure", err))
 		}

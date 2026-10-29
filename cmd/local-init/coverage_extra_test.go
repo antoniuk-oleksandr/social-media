@@ -6,12 +6,15 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"os"
 )
 
 var _ = Describe("InitTablesPropagatesPrintError", func() {
 	It("runs the test", func() {
-		client := &fakeClient{}
+		ctrl := gomock.NewController(GinkgoT())
+		client := NewMocktableCreator(ctrl)
+		client.EXPECT().CreateTable(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, nil)
 		want := errors.New("print")
 		if err := initTables(nil, client, func(string, ...any) (int, error) { return 0, want }); !errors.Is(err, want) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v, want %v", err, want))

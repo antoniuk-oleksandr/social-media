@@ -17,7 +17,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
+
+type adminAuthenticator interface {
+	AuthenticateAdmin(context.Context, string) (string, error)
+}
 
 func listItem(id, status string, epoch int64) map[string]types.AttributeValue {
 	created := time.UnixMilli(epoch).UTC().Format(time.RFC3339Nano)
@@ -38,10 +43,10 @@ var _ = Describe("List", func() {
 			"0192f8a0-7b00-0000-0000-000000000922",
 			"0192f8a0-7b00-0000-0000-000000000921",
 		}
-		api := &putItemAPI{queryOutputs: []*dynamodb.QueryOutput{
+		api := newPutItemAPIQuery(nil, []*dynamodb.QueryOutput{
 			{Items: []map[string]types.AttributeValue{listItem(ids[1], "active", 5000)}, LastEvaluatedKey: map[string]types.AttributeValue{"adId": &types.AttributeValueMemberS{Value: "page-1"}}},
 			{Items: []map[string]types.AttributeValue{listItem(ids[0], "active", 5000), listItem(ids[2], "active", 5000)}},
-		}}
+		}, nil)
 		repository := &Repository{Client: api, TableName: "ads-test", cursor: newCursorSigner(platformconfig.AdsConfig{CursorKey: "test-cursor-key", CursorKeyID: "v1", CursorVersion: 1})}
 
 		first, err := repository.List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 2})
@@ -67,7 +72,7 @@ var _ = Describe("List", func() {
 			listItem("0192f8a0-7b00-0000-0000-000000000923", "active", 3000),
 			listItem("0192f8a0-7b00-0000-0000-000000000922", "active", 2000),
 		}
-		api := &putItemAPI{queryOutputs: []*dynamodb.QueryOutput{{Items: items}}}
+		api := newPutItemAPIQuery(nil, []*dynamodb.QueryOutput{{Items: items}}, nil)
 		repository := &Repository{Client: api, TableName: "ads-test", cursor: newCursorSigner(platformconfig.AdsConfig{CursorKey: "test-cursor-key", CursorKeyID: "v1", CursorVersion: 1})}
 		first, err := repository.List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 2})
 		Expect(err).NotTo(HaveOccurred())
@@ -82,13 +87,13 @@ var _ = Describe("List", func() {
 	})
 
 	It("queries the active index in reverse order and maps results", func() {
-		api := &putItemAPI{queryOutput: &dynamodb.QueryOutput{
+		api := newPutItemAPIQuery(&dynamodb.QueryOutput{
 			Items: []map[string]types.AttributeValue{
 				listItem("0192f8a0-7b00-7000-8000-000000000901", "active", 1000),
 				listItem("0192f8a0-7b00-8000-8000-000000000902", "active", 999),
 			},
 			LastEvaluatedKey: map[string]types.AttributeValue{"adId": &types.AttributeValueMemberS{Value: "last"}},
-		}}
+		}, nil, nil)
 		result, err := (&Repository{Client: api, TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 1})
 
 		Expect(err).NotTo(HaveOccurred())
@@ -110,7 +115,7 @@ var _ = Describe("List", func() {
 		}
 		cursor, err := newCursorSigner(platformconfig.AdsConfig{CursorKey: "test-cursor-key", CursorKeyID: "v1", CursorVersion: 1}).encode(ad.StatusPaused, 4, "", startKey)
 		Expect(err).NotTo(HaveOccurred())
-		api := &putItemAPI{queryOutput: &dynamodb.QueryOutput{}}
+		api := newPutItemAPIQuery(&dynamodb.QueryOutput{}, nil, nil)
 
 		_, err = (&Repository{Client: api, TableName: "ads-test", cursor: newCursorSigner(platformconfig.AdsConfig{CursorKey: "test-cursor-key", CursorKeyID: "v1", CursorVersion: 1})}).List(context.Background(), ad.ListQuery{Status: ad.StatusPaused, Limit: 4, Cursor: cursor})
 		Expect(err).NotTo(HaveOccurred())
@@ -123,15 +128,15 @@ var _ = Describe("List", func() {
 		cursor, err := newCursorSigner(platformconfig.AdsConfig{CursorKey: "test-cursor-key", CursorKeyID: "v1", CursorVersion: 1}).encode(ad.StatusActive, 2, "", key)
 		Expect(err).NotTo(HaveOccurred())
 
-		_, err = (&Repository{Client: &putItemAPI{}, TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 3, Cursor: cursor})
+		_, err = (&Repository{Client: newPutItemAPIQuery(nil, nil, nil), TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 3, Cursor: cursor})
 		Expect(err).To(MatchError(ad.ErrInvalidCursor))
 
-		_, err = (&Repository{Client: &putItemAPI{err: errors.New("query failed")}, TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 2})
+		_, err = (&Repository{Client: newPutItemAPIQuery(nil, nil, errors.New("query failed")), TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 2})
 		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
 	})
 
 	It("maps malformed persistence records to a dependency error", func() {
-		api := &putItemAPI{queryOutput: &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{"adId": &types.AttributeValueMemberS{Value: "only-id"}}}}}
+		api := newPutItemAPIQuery(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{"adId": &types.AttributeValueMemberS{Value: "only-id"}}}}, nil, nil)
 		_, err := (&Repository{Client: api, TableName: "ads-test"}).List(context.Background(), ad.ListQuery{Status: ad.StatusActive, Limit: 1})
 		Expect(err).To(MatchError(ad.ErrDependencyUnavailable))
 	})
@@ -176,7 +181,7 @@ var _ = Describe("cursor encoding", func() {
 
 var _ = Describe("query input contract", func() {
 	It("uses the configured table name", func() {
-		api := &putItemAPI{queryOutput: &dynamodb.QueryOutput{}}
+		api := newPutItemAPIQuery(&dynamodb.QueryOutput{}, nil, nil)
 		_, err := (&Repository{Client: api, TableName: "configured-ads"}).List(context.Background(), ad.ListQuery{Status: ad.StatusDraft, Limit: 1})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(aws.ToString(api.queryInput.TableName)).To(Equal("configured-ads"))
@@ -216,15 +221,6 @@ var _ = Describe("configured advertisement repository", func() {
 	})
 })
 
-type listHTTPAuthenticator struct {
-	id  string
-	err error
-}
-
-func (a listHTTPAuthenticator) AuthenticateAdmin(context.Context, string) (string, error) {
-	return a.id, a.err
-}
-
 var _ = Describe("GET advertisement list configured cursor boundary", func() {
 	It("uses the configured signer at the HTTP boundary for expiry and user binding", func() {
 		issued := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
@@ -240,21 +236,25 @@ var _ = Describe("GET advertisement list configured cursor boundary", func() {
 			r.Header.Set("Authorization", "Bearer configured-admin")
 			return r
 		}
-		newRouter := func(authenticator listHTTPAuthenticator, current time.Time) http.Handler {
+		newRouter := func(authenticator *MockadminAuthenticator, current time.Time) http.Handler {
 			configuredSigner := signer
 			configuredSigner.now = func() time.Time { return current }
-			repository := &Repository{Client: &putItemAPI{queryOutput: &dynamodb.QueryOutput{}}, TableName: cfg.AdsTable, cursor: configuredSigner}
+			repository := &Repository{Client: newPutItemAPIQuery(&dynamodb.QueryOutput{}, nil, nil), TableName: cfg.AdsTable, cursor: configuredSigner}
 			service := ad.NewService(repository, nil, nil)
 			return ad.NewRouter(ad.NewHandler(service), authenticator)
 		}
 
 		expired := httptest.NewRecorder()
-		newRouter(listHTTPAuthenticator{id: "0192f8a0-7b00-8000-0000-000000000901"}, issued.Add(16*time.Minute)).ServeHTTP(expired, request())
+		expiredAuth := NewMockadminAuthenticator(gomock.NewController(GinkgoT()))
+		expiredAuth.EXPECT().AuthenticateAdmin(gomock.Any(), gomock.Any()).Return("0192f8a0-7b00-8000-0000-000000000901", nil)
+		newRouter(expiredAuth, issued.Add(16*time.Minute)).ServeHTTP(expired, request())
 		Expect(expired.Code).To(Equal(http.StatusBadRequest))
 		Expect(expired.Body.String()).To(ContainSubstring(`"code":"CURSOR_EXPIRED"`))
 
 		bound := httptest.NewRecorder()
-		newRouter(listHTTPAuthenticator{id: "0192f8a0-7b00-8000-0000-000000000902"}, issued).ServeHTTP(bound, request())
+		boundAuth := NewMockadminAuthenticator(gomock.NewController(GinkgoT()))
+		boundAuth.EXPECT().AuthenticateAdmin(gomock.Any(), gomock.Any()).Return("0192f8a0-7b00-8000-0000-000000000902", nil)
+		newRouter(boundAuth, issued).ServeHTTP(bound, request())
 		Expect(bound.Code).To(Equal(http.StatusBadRequest))
 		Expect(bound.Body.String()).To(ContainSubstring(`"code":"INVALID_CURSOR"`))
 	})
@@ -268,8 +268,10 @@ var _ = Describe("GET advertisement list configured cursor boundary", func() {
 			{authError: auth.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
 			{authError: errors.New("malformed token"), status: http.StatusUnauthorized, code: "INVALID_TOKEN"},
 		} {
-			repository := &Repository{Client: &putItemAPI{}, TableName: "configured-ads", cursor: newCursorSigner(platformconfig.AdsConfig{CursorKey: "key", CursorKeyID: "kid", CursorVersion: 1})}
-			router := ad.NewRouter(ad.NewHandler(ad.NewService(repository, nil, nil)), listHTTPAuthenticator{err: test.authError})
+			repository := &Repository{Client: newPutItemAPIQuery(nil, nil, nil), TableName: "configured-ads", cursor: newCursorSigner(platformconfig.AdsConfig{CursorKey: "key", CursorKeyID: "kid", CursorVersion: 1})}
+			authenticator := NewMockadminAuthenticator(gomock.NewController(GinkgoT()))
+			authenticator.EXPECT().AuthenticateAdmin(gomock.Any(), gomock.Any()).Return("", test.authError)
+			router := ad.NewRouter(ad.NewHandler(ad.NewService(repository, nil, nil)), authenticator)
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/ads", nil)
 			request.Header.Set("Authorization", "Bearer token")
 			response := httptest.NewRecorder()

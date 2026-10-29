@@ -26,5 +26,5 @@ func main() {
 			log.Print(err)
 		}
 	}()
-	lambda.Start(algnhsa.New(handler, nil))
+	lambda.StartHandler(platformobservability.WrapLambdaHandler(algnhsa.New(handler, nil)))
 }

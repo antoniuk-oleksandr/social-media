@@ -14,72 +14,45 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type loginStore struct {
-	user       user.User
-	err        error
+type loginStoreFixture struct {
+	*MockLoginStore
 	session    auth.RefreshSession
-	sessionErr error
 	findCalls  int
+	sessionErr error
 }
 
-func (s *loginStore) FindByLogin(context.Context, string) (user.User, error) {
-	s.findCalls++
-	return s.user, s.err
-}
-func (s *loginStore) CreateLoginSession(_ context.Context, session auth.RefreshSession) error {
-	s.session = session
-	return s.sessionErr
+func newLoginStore(userValue user.User, findErr error) *loginStoreFixture {
+	return newLoginStoreWithSessionErr(userValue, findErr, nil)
 }
 
-type loginVerifier struct{ err error }
-
-func (v loginVerifier) Compare(string, string) error { return v.err }
-
-type loginIDs struct{}
-
-func (loginIDs) New() (string, error) { return "0192f8a0-7b00-7000-8000-000000000002", nil }
-
-type loginClock struct{}
-
-func (loginClock) Now() time.Time { return time.Unix(100, 0).UTC() }
-
-type loginAccess struct{}
-
-func (loginAccess) Issue(context.Context, user.User, time.Time) (string, error) {
-	return "access.jwt", nil
+func newLoginStoreWithSessionErr(userValue user.User, findErr, sessionErr error) *loginStoreFixture {
+	store := &loginStoreFixture{MockLoginStore: NewMockLoginStore(gomock.NewController(GinkgoT()))}
+	store.EXPECT().FindByLogin(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string) (user.User, error) { store.findCalls++; return userValue, findErr })
+	store.EXPECT().CreateLoginSession(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, session auth.RefreshSession) error { store.session = session; return sessionErr })
+	return store
 }
 
-type loginOpaque struct{}
-
-func (loginOpaque) Generate() (string, string, error) { return "opaque-refresh", "hashed-refresh", nil }
-
-type failingID struct{}
-
-func (failingID) New() (string, error) { return "", errors.New("id failure") }
-
-type loginService struct {
-	result auth.RegisterResult
-	err    error
-}
-
-func (s loginService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (s loginService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
-	return s.result, s.err
-}
-func (s loginService) Logout(context.Context, string) error { return s.err }
-
-func newLoginService(store *loginStore, verifierErr error) *auth.Service {
-	return &auth.Service{LoginStore: store, Verifier: loginVerifier{err: verifierErr}, IDs: loginIDs{}, Clock: loginClock{}, Access: loginAccess{}, Opaque: loginOpaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+func newLoginService(store *loginStoreFixture, verifierErr error) *auth.Service {
+	verifier := NewMockPasswordVerifier(gomock.NewController(GinkgoT()))
+	verifier.EXPECT().Compare(gomock.Any(), gomock.Any()).AnyTimes().Return(verifierErr)
+	ids := NewMockIDGenerator(gomock.NewController(GinkgoT()))
+	ids.EXPECT().New().AnyTimes().Return("0192f8a0-7b00-7000-8000-000000000002", nil)
+	clock := NewMockClock(gomock.NewController(GinkgoT()))
+	clock.EXPECT().Now().AnyTimes().Return(time.Unix(100, 0).UTC())
+	access := NewMockAccessTokenIssuer(gomock.NewController(GinkgoT()))
+	access.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("access.jwt", nil)
+	opaque := NewMockOpaqueTokenGenerator(gomock.NewController(GinkgoT()))
+	opaque.EXPECT().Generate().AnyTimes().Return("opaque-refresh", "hashed-refresh", nil)
+	return &auth.Service{LoginStore: store, Verifier: verifier, IDs: ids, Clock: clock, Access: access, Opaque: opaque, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 }
 
 var _ = Describe("LoginService", func() {
 	It("accepts username and email and creates a session", func() {
 		for _, login := range []string{"alice", "ALICE@EXAMPLE.COM"} {
-			store := &loginStore{user: user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive}}
+			store := newLoginStore(user.User{ID: "0192f8a0-7b00-7000-8000-000000000001", Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive}, nil)
 			got, err := newLoginService(store, nil).Login(context.Background(), auth.LoginCommand{Login: login, Password: "correct-password"})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got.User.Email).To(Equal("alice@example.com"))
@@ -94,12 +67,12 @@ var _ = Describe("LoginService", func() {
 	It("returns generic invalid credentials for missing, wrong, and blocked users", func() {
 		cases := []struct {
 			name        string
-			store       *loginStore
+			store       *loginStoreFixture
 			verifierErr error
 		}{
-			{"missing user", &loginStore{err: user.ErrNotFound}, nil},
-			{"wrong password", &loginStore{user: user.User{Status: user.StatusActive}}, errors.New("mismatch")},
-			{"blocked user", &loginStore{user: user.User{Status: "blocked"}}, nil},
+			{"missing user", newLoginStore(user.User{}, user.ErrNotFound), nil},
+			{"wrong password", newLoginStore(user.User{Status: user.StatusActive}, nil), errors.New("mismatch")},
+			{"blocked user", newLoginStore(user.User{Status: "blocked"}, nil), nil},
 		}
 		for _, tc := range cases {
 			By(tc.name)
@@ -111,7 +84,7 @@ var _ = Describe("LoginService", func() {
 	It("rejects malformed username and email identifiers before repository lookup", func() {
 		for _, login := range []string{"ab", "alice!", "alice@", "alice@@example.com", "Alice Example <alice@example.com>"} {
 			By(login)
-			store := &loginStore{}
+			store := newLoginStore(user.User{}, nil)
 			_, err := newLoginService(store, nil).Login(context.Background(), auth.LoginCommand{Login: login, Password: "correct-password"})
 			Expect(err).To(HaveOccurred())
 			Expect(errors.Is(err, auth.ErrValidation)).To(BeTrue())
@@ -126,7 +99,9 @@ var _ = Describe("LoginHandler", func() {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice@example.com","password":"correct-password"}`))
 		r.Header.Set("Content-Type", "application/json")
-		(auth.Handler{Service: loginService{result: result}}).Login(w, r)
+		service := NewMockServicePort(gomock.NewController(GinkgoT()))
+		service.EXPECT().Login(gomock.Any(), gomock.Any()).Return(result, nil)
+		(auth.Handler{Service: service}).Login(w, r)
 		Expect(w.Code).To(Equal(http.StatusOK))
 		var response map[string]any
 		Expect(json.Unmarshal(w.Body.Bytes(), &response)).To(Succeed())
@@ -141,7 +116,9 @@ var _ = Describe("LoginHandler", func() {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"unknown","password":"correct-password"}`))
 		r.Header.Set("Content-Type", "application/json")
-		(auth.Handler{Service: loginService{err: auth.ErrInvalidCredentials}}).Login(w, r)
+		service := NewMockServicePort(gomock.NewController(GinkgoT()))
+		service.EXPECT().Login(gomock.Any(), gomock.Any()).Return(auth.RegisterResult{}, auth.ErrInvalidCredentials)
+		(auth.Handler{Service: service}).Login(w, r)
 		Expect(w.Code).To(Equal(http.StatusUnauthorized))
 		Expect(w.Body.String()).To(ContainSubstring(`"message":"Invalid credentials"`))
 	})
@@ -157,19 +134,18 @@ var _ = Describe("LoginHandler", func() {
 		}
 		for _, tc := range cases {
 			By(tc.name)
-			service := &loginService{}
+			service := NewMockServicePort(gomock.NewController(GinkgoT()))
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(tc.body))
 			r.Header.Set("Content-Type", tc.contentType)
 			w := httptest.NewRecorder()
 			(auth.Handler{Service: service}).Login(w, r)
 			Expect(w.Code).To(Equal(tc.status))
-			Expect(service.result.Tokens.AccessToken).To(BeEmpty())
 		}
 	})
 
 	It("returns 422 for missing or invalid login and password fields", func() {
 		for _, body := range []string{`{}`, `{"login":"","password":"correct-password"}`, `{"login":"alice","password":""}`} {
-			service := newLoginService(&loginStore{}, nil)
+			service := newLoginService(newLoginStore(user.User{}, nil), nil)
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
 			r.Header.Set("Content-Type", "application/json")
@@ -182,7 +158,9 @@ var _ = Describe("LoginHandler", func() {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice","password":"correct-password"}`))
 		r.Header.Set("Content-Type", "application/json")
-		(auth.Handler{Service: loginService{err: auth.ErrDependencyUnavailable}}).Login(w, r)
+		service := NewMockServicePort(gomock.NewController(GinkgoT()))
+		service.EXPECT().Login(gomock.Any(), gomock.Any()).Return(auth.RegisterResult{}, auth.ErrDependencyUnavailable)
+		(auth.Handler{Service: service}).Login(w, r)
 		Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
 		Expect(w.Body.String()).To(ContainSubstring(`"code":"SERVICE_UNAVAILABLE"`))
 	})
@@ -193,7 +171,9 @@ var _ = Describe("LoginHandler", func() {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"`+login+`","password":"correct-password"}`))
 			r.Header.Set("Content-Type", "application/json")
-			(auth.Handler{Service: loginService{err: auth.ErrInvalidCredentials}}).Login(w, r)
+			service := NewMockServicePort(gomock.NewController(GinkgoT()))
+			service.EXPECT().Login(gomock.Any(), gomock.Any()).Return(auth.RegisterResult{}, auth.ErrInvalidCredentials)
+			(auth.Handler{Service: service}).Login(w, r)
 			Expect(w.Code).To(Equal(http.StatusUnauthorized))
 			bodies[i] = w.Body.String()
 		}

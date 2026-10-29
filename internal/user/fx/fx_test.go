@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 
+	platformclock "github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
+	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	userfeature "github.com/antoniuk-oleksandr/social-media/internal/user"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
@@ -30,5 +32,10 @@ var _ = Describe("User feature constructors", func() {
 		Expect(router).NotTo(BeNil())
 		var _ userfeature.Repository = repository
 		var _ userfeature.Service = service
+	})
+
+	It("constructs a repository from explicit users configuration", func() {
+		repository := NewConfiguredRepository(dynamodb.New(dynamodb.Options{}), platformconfig.UsersConfig{UsersTable: "users", UniquesTable: "uniques"}, platformclock.Real{})
+		Expect(repository).NotTo(BeNil())
 	})
 })
