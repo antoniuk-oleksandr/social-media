@@ -6,27 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	"go.uber.org/mock/gomock"
 )
-
-type captureLogger struct {
-	infoMessage  string
-	infoFields   []logging.Field
-	errorMessage string
-	errorFields  []logging.Field
-}
-
-func (l *captureLogger) Info(message string, fields ...logging.Field) error {
-	l.infoMessage, l.infoFields = message, fields
-	return nil
-}
-func (l *captureLogger) Error(message string, fields ...logging.Field) error {
-	l.errorMessage, l.errorFields = message, fields
-	return nil
-}
-func (l *captureLogger) Sync() error { return nil }
 
 func TestHandlerLogsCompletedAndFailedRequests(t *testing.T) {
 	validAuthor := "0192c5f4-7b2a-7abc-8def-1234567890ab"
@@ -42,17 +25,30 @@ func TestHandlerLogsCompletedAndFailedRequests(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger := &captureLogger{}
-			handler := NewHandler(NewService(&fakeRepository{err: tc.repository}, fakeIDs{value: validPost}, fakeClock{value: time.Now()}), logger)
+			ctrl := gomock.NewController(t)
+			logger := NewMockLogger(ctrl)
+			var infoMessage, errorMessage string
+			var infoFields, errorFields []logging.Field
+			logger.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(message string, fields ...logging.Field) error {
+				infoMessage, infoFields = message, fields
+				return nil
+			})
+			logger.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(message string, fields ...logging.Field) error {
+				errorMessage, errorFields = message, fields
+				return nil
+			})
+			logger.EXPECT().Sync().AnyTimes().Return(nil)
+			repository, ids, clock := postDependencies(t, Post{}, validPost, nil, tc.repository)
+			handler := NewHandler(NewService(repository, ids, clock), logger)
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/posts", strings.NewReader(`{"content":"hello"}`))
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("X-Request-ID", "request-123")
 			r = WithAuthenticatedUserID(r, validAuthor)
 			w := httptest.NewRecorder()
 			handler.Create(w, r)
-			fields, message := logger.infoFields, logger.infoMessage
+			fields, message := infoFields, infoMessage
 			if !tc.wantInfo {
-				fields, message = logger.errorFields, logger.errorMessage
+				fields, message = errorFields, errorMessage
 			}
 			if tc.wantInfo && message != "post request completed" {
 				t.Fatalf("info message = %q", message)
@@ -68,9 +64,20 @@ func TestHandlerLogsCompletedAndFailedRequests(t *testing.T) {
 }
 
 func TestRouterLogsAuthenticationFailuresWithoutAuthorizationValue(t *testing.T) {
-	logger := &captureLogger{}
-	handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{}, fakeClock{}), logger)
-	router := NewRouter(handler, fakeAuthenticator{err: errors.New("token rejected")})
+	ctrl := gomock.NewController(t)
+	logger := NewMockLogger(ctrl)
+	var infoMessage string
+	var infoFields []logging.Field
+	logger.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(message string, fields ...logging.Field) error {
+		infoMessage, infoFields = message, fields
+		return nil
+	})
+	logger.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
+	logger.EXPECT().Sync().AnyTimes().Return(nil)
+	repository, ids, clock := postDependencies(t, Post{}, "", nil, nil)
+	auth := postAuth(t, "", errors.New("token rejected"))
+	handler := NewHandler(NewService(repository, ids, clock), logger)
+	router := NewRouter(handler, auth)
 	for _, tc := range []struct {
 		name      string
 		authorize string
@@ -80,7 +87,7 @@ func TestRouterLogsAuthenticationFailuresWithoutAuthorizationValue(t *testing.T)
 		{name: "invalid authorization", authorize: "Bearer secret-token", code: "INVALID_TOKEN"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			logger.infoMessage, logger.infoFields = "", nil
+			infoMessage, infoFields = "", nil
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/posts", nil)
 			r.Header.Set("Authorization", tc.authorize)
 			r.Header.Set("X-Request-ID", "request-auth")
@@ -89,10 +96,10 @@ func TestRouterLogsAuthenticationFailuresWithoutAuthorizationValue(t *testing.T)
 			if w.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d", w.Code)
 			}
-			if logger.infoMessage != "post request completed" || !hasLogField(logger.infoFields, "request_id", "request-auth") || !hasLogField(logger.infoFields, "route", "POST /api/v1/posts") || !hasLogField(logger.infoFields, "status", "401") || !hasLogField(logger.infoFields, "error_code", tc.code) || !hasLogFieldKey(logger.infoFields, "duration") {
-				t.Fatalf("log = %q %#v", logger.infoMessage, logger.infoFields)
+			if infoMessage != "post request completed" || !hasLogField(infoFields, "request_id", "request-auth") || !hasLogField(infoFields, "route", "POST /api/v1/posts") || !hasLogField(infoFields, "status", "401") || !hasLogField(infoFields, "error_code", tc.code) || !hasLogFieldKey(infoFields, "duration") {
+				t.Fatalf("log = %q %#v", infoMessage, infoFields)
 			}
-			for _, field := range logger.infoFields {
+			for _, field := range infoFields {
 				if field.Key == "authorization" || field.Key == "token" || field.Key == "secret" || field.Value == "secret-token" {
 					t.Fatalf("authorization value leaked in log field %#v", field)
 				}
@@ -102,7 +109,8 @@ func TestRouterLogsAuthenticationFailuresWithoutAuthorizationValue(t *testing.T)
 }
 
 func TestHandlerMapsOversizedPayload(t *testing.T) {
-	handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{value: "0192c5f4-7b2a-7abd-8def-1234567890ab"}, fakeClock{value: time.Now()}), nil)
+	repository, ids, clock := postDependencies(t, Post{}, "0192c5f4-7b2a-7abd-8def-1234567890ab", nil, nil)
+	handler := NewHandler(NewService(repository, ids, clock), nil)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/posts", strings.NewReader(`{"content":"`+strings.Repeat("x", 1<<20)+`"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r = WithAuthenticatedUserID(r, "0192c5f4-7b2a-7abc-8def-1234567890ab")
@@ -146,14 +154,14 @@ func hasLogFieldKey(fields []logging.Field, key string) bool {
 	return false
 }
 
-type failingLogger struct{}
-
-func (failingLogger) Info(string, ...logging.Field) error  { return errors.New("info failed") }
-func (failingLogger) Error(string, ...logging.Field) error { return errors.New("error failed") }
-func (failingLogger) Sync() error                          { return nil }
-
 func TestHandlerIgnoresLoggerFailures(t *testing.T) {
-	handler := NewHandler(NewService(&fakeRepository{}, fakeIDs{value: "0192c5f4-7b2a-7abd-8def-1234567890ab"}, fakeClock{value: time.Now()}), failingLogger{})
+	repository, ids, clock := postDependencies(t, Post{}, "0192c5f4-7b2a-7abd-8def-1234567890ab", nil, nil)
+	ctrl := gomock.NewController(t)
+	logger := NewMockLogger(ctrl)
+	logger.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().Return(errors.New("info failed"))
+	logger.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().Return(errors.New("error failed"))
+	logger.EXPECT().Sync().AnyTimes().Return(nil)
+	handler := NewHandler(NewService(repository, ids, clock), logger)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/posts", strings.NewReader(`{"content":"hello"}`))
 	r.Header.Set("Content-Type", "application/json")
 	r = WithAuthenticatedUserID(r, "0192c5f4-7b2a-7abc-8def-1234567890ab")

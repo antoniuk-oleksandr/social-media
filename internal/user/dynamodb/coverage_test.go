@@ -4,17 +4,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-type fixedRepositoryClock struct{ value time.Time }
-
-func (c fixedRepositoryClock) Now() time.Time { return c.value }
-
 func TestConfiguredRepositoryWithClockAndUsernameConflict(t *testing.T) {
-	clock := fixedRepositoryClock{value: time.Unix(0, 0)}
-	repository, ok := NewConfiguredRepositoryWithClock(nil, "users", "uniques", clock).(*Repository)
-	if !ok || repository.TableName != "users" || repository.UniqueTableName != "uniques" || repository.Clock != clock {
+	fixed := clock.Fixed{T: time.Unix(0, 0)}
+	repository, ok := NewConfiguredRepositoryWithClock(nil, "users", "uniques", fixed).(*Repository)
+	if !ok || repository.TableName != "users" || repository.UniqueTableName != "uniques" || repository.Clock != fixed {
 		t.Fatalf("repository = %#v", repository)
 	}
 	code := "ConditionalCheckFailed"

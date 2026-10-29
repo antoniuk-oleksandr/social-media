@@ -13,18 +13,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-type fixedAuthorSource struct{ value user.User }
-
-func (s fixedAuthorSource) GetByID(context.Context, string) (user.User, error) { return s.value, nil }
-
-func (s fixedAuthorSource) GetByIDs(context.Context, []string) (map[string]user.User, error) {
-	return map[string]user.User{s.value.ID: s.value}, nil
-}
-
 var _ = Describe("feed handler and service edge cases", func() {
 	It("uses documented author fields", func() {
 		author := user.User{ID: fmtID(1000), Username: "alice", DisplayName: "Alice"}
-		service := NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1", fixedAuthorSource{value: author})
+		service := newFeedServiceWithAuthors(makePosts(1), nil, time.UnixMilli(3000), map[string]user.User{fmtID(1000): author}, nil)
 		handler := NewHandler(service)
 		recorder := httptest.NewRecorder()
 		handler.Get(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/feed", nil))
@@ -43,7 +35,7 @@ var _ = Describe("feed handler and service edge cases", func() {
 	})
 
 	It("distinguishes explicit zero from an omitted limit", func() {
-		service := NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1")
+		service := newFeedService(makePosts(1), nil, time.UnixMilli(3000))
 		_, err := service.Build(context.Background(), Query{Limit: 0, LimitSet: true})
 		Expect(err).To(MatchError(ErrInvalidQuery))
 		result, err := service.Build(context.Background(), Query{})
@@ -52,8 +44,8 @@ var _ = Describe("feed handler and service edge cases", func() {
 	})
 
 	It("rejects authorization whitespace variants", func() {
-		service := NewService(fakePosts{makePosts(1)}, fakeAds{}, fakeClock{time.UnixMilli(3000)}, "key", "v1")
-		router := NewRouter(NewHandler(service), fakeAuthenticator{id: "user-1"})
+		service := newFeedService(makePosts(1), nil, time.UnixMilli(3000))
+		router := NewRouter(NewHandler(service), newFeedAuthenticator("user-1", nil))
 		for _, header := range []string{"Bearer", "Bearer ", "Bearer  token", "Bearer token ", "Bearer tok\ten", "Bearer tok en", "bearer token", "Basic token"} {
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/feed", nil)
 			request.Header.Set("Authorization", header)
@@ -68,7 +60,7 @@ var _ = Describe("feed handler and service edge cases", func() {
 		for i := range ads {
 			ads[i] = activeAd(i)
 		}
-		service := NewService(fakePosts{makePosts(1020)}, fakeAds{ads}, fakeClock{time.UnixMilli(3000)}, "key", "v1")
+		service := newFeedService(makePosts(1020), ads, time.UnixMilli(3000))
 		var cursor string
 		shown := map[string]bool{}
 		for page := 0; page < 51; page++ {

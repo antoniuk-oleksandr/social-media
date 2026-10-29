@@ -31,7 +31,8 @@ var _ = Describe("GetByID", func() {
 	}
 
 	It("reads and maps the complete advertisement", func() {
-		api := &putItemAPI{getOutput: &dynamodb.GetItemOutput{Item: item}}
+		api := newPutItemAPIFixture(nil)
+		api.getOutput = &dynamodb.GetItemOutput{Item: item}
 		value, err := (&Repository{Client: api, TableName: "ads-test"}).GetByID(context.Background(), id)
 
 		Expect(err).NotTo(HaveOccurred())
@@ -44,7 +45,9 @@ var _ = Describe("GetByID", func() {
 	})
 
 	It("maps an absent item to not found", func() {
-		value, err := (&Repository{Client: &putItemAPI{getOutput: &dynamodb.GetItemOutput{}}, TableName: "ads-test"}).GetByID(context.Background(), id)
+		api := newPutItemAPIFixture(nil)
+		api.getOutput = &dynamodb.GetItemOutput{}
+		value, err := (&Repository{Client: api, TableName: "ads-test"}).GetByID(context.Background(), id)
 		Expect(value).To(Equal(ad.Advertisement{}))
 		Expect(err).To(MatchError(ad.ErrNotFound))
 	})
@@ -57,16 +60,22 @@ var _ = Describe("GetByID", func() {
 			} else {
 				malformed[name] = &types.AttributeValueMemberS{Value: "not-a-timestamp"}
 			}
-			value, err := (&Repository{Client: &putItemAPI{getOutput: &dynamodb.GetItemOutput{Item: malformed}}, TableName: "ads-test"}).GetByID(context.Background(), id)
+			api := newPutItemAPIFixture(nil)
+			api.getOutput = &dynamodb.GetItemOutput{Item: malformed}
+			value, err := (&Repository{Client: api, TableName: "ads-test"}).GetByID(context.Background(), id)
 			Expect(value).To(Equal(ad.Advertisement{}), name)
 			Expect(err).To(MatchError(ad.ErrDependencyUnavailable), name)
 		}
 	})
 
 	It("translates read failures and malformed records to dependency unavailable", func() {
-		for _, api := range []*putItemAPI{
-			{err: errors.New("DynamoDB unavailable")},
-			{getOutput: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{"adId": &types.AttributeValueMemberS{Value: id}}}},
+		for _, api := range []*putItemAPIFixture{
+			newPutItemAPIFixture(errors.New("DynamoDB unavailable")),
+			func() *putItemAPIFixture {
+				a := newPutItemAPIFixture(nil)
+				a.getOutput = &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{"adId": &types.AttributeValueMemberS{Value: id}}}
+				return a
+			}(),
 		} {
 			value, err := (&Repository{Client: api, TableName: "ads-test"}).GetByID(context.Background(), id)
 			Expect(value).To(Equal(ad.Advertisement{}))

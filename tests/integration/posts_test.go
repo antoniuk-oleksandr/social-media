@@ -21,14 +21,6 @@ import (
 
 var postsTable string
 
-type integrationIDGenerator struct{ id string }
-
-func (g integrationIDGenerator) New() (string, error) { return g.id, nil }
-
-type integrationClock struct{ value time.Time }
-
-func (c integrationClock) Now() time.Time { return c.value }
-
 var _ = BeforeEach(func() {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -84,7 +76,7 @@ var _ = Describe("GET post by UUIDv7 persistence", func() {
 		authorID := "0192f8a0-7b00-7000-8000-000000000722"
 		createdAt := time.Date(2026, 10, 24, 12, 0, 0, 123000000, time.UTC)
 		repository := &postdb.Repository{Client: userIntegrationSuite.Client, TableName: postsTable}
-		service := postfeature.NewService(repository, integrationIDGenerator{id: id}, integrationClock{value: createdAt})
+		service := postfeature.NewService(repository, newIntegrationID(id), fixedIntegrationClock(createdAt))
 		created, err := service.Create(context.Background(), postfeature.CreateCommand{AuthorID: authorID, Content: "Created with milliseconds"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(created.CreatedAt).To(Equal(createdAt))

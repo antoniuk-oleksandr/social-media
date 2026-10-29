@@ -11,22 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
-
-type queryClient struct {
-	pages  []*dynamodb.QueryOutput
-	errors []error
-	calls  int
-}
-
-func (c *queryClient) Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	index := c.calls
-	c.calls++
-	if index < len(c.errors) && c.errors[index] != nil {
-		return nil, c.errors[index]
-	}
-	return c.pages[index], nil
-}
 
 func validPostItem(id string, created time.Time) map[string]types.AttributeValue {
 	return map[string]types.AttributeValue{
@@ -43,7 +29,10 @@ var _ = Describe("feed post repository", func() {
 	It("queries multiple pages, filters by snapshot, and sorts results", func() {
 		old := time.Date(2026, 10, 26, 11, 0, 0, 0, time.UTC)
 		boundary := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
-		client := &queryClient{pages: []*dynamodb.QueryOutput{
+		ctrl := gomock.NewController(GinkgoT())
+		client := NewMockAPI(ctrl)
+		calls := 0
+		pages := []*dynamodb.QueryOutput{
 			{Items: []map[string]types.AttributeValue{
 				validPostItem("post-old", old),
 				validPostItem("post-later", boundary.Add(time.Minute)),
@@ -54,7 +43,12 @@ var _ = Describe("feed post repository", func() {
 				validPostItem("post-tie-b", boundary),
 				validPostItem("post-tie-a", boundary),
 			}},
-		}}
+		}
+		client.EXPECT().Query(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+			page := pages[calls]
+			calls++
+			return page, nil
+		})
 
 		repository := &PostRepository{Client: client, TableName: "posts"}
 		items, err := repository.List(context.Background(), boundary)
@@ -64,18 +58,21 @@ var _ = Describe("feed post repository", func() {
 		Expect(items[1].ID).To(Equal("post-tie-a"))
 		Expect(items[2].ID).To(Equal("post-boundary"))
 		Expect(items[3].ID).To(Equal("post-old"))
-		Expect(client.calls).To(Equal(2))
+		Expect(calls).To(Equal(2))
 	})
 
 	It("returns query and mapping errors", func() {
 		queryErr := errors.New("query failed")
-		client := &queryClient{errors: []error{queryErr}}
+		ctrl := gomock.NewController(GinkgoT())
+		client := NewMockAPI(ctrl)
+		client.EXPECT().Query(gomock.Any(), gomock.Any()).Return(nil, queryErr)
 		_, err := (&PostRepository{Client: client, TableName: "posts"}).List(context.Background(), time.Now())
 		Expect(err).To(MatchError(queryErr))
 
 		bad := validPostItem("bad", time.Now())
 		bad["createdAtEpoch"] = &types.AttributeValueMemberN{Value: "not-a-number"}
-		client = &queryClient{pages: []*dynamodb.QueryOutput{{Items: []map[string]types.AttributeValue{bad}}}}
+		client = NewMockAPI(gomock.NewController(GinkgoT()))
+		client.EXPECT().Query(gomock.Any(), gomock.Any()).Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{bad}}, nil)
 		_, err = (&PostRepository{Client: client, TableName: "posts"}).List(context.Background(), time.Now())
 		Expect(err).To(MatchError("strconv.ParseInt: parsing \"not-a-number\": invalid syntax"))
 	})

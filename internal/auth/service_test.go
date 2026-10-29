@@ -3,95 +3,58 @@ package auth_test
 import (
 	"context"
 	"errors"
-	"fmt"
+	"testing"
+	"time"
+
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"time"
+	"go.uber.org/mock/gomock"
 )
 
-type store struct {
-	r auth.Registration
-	e error
+const serviceUserID = "0192f8a0-7b00-7000-8000-000000000001"
+
+func registrationDependencies(t *testing.T, id string, idErr error) (*MockRegistrationStore, *MockPasswordHasher, *MockIDGenerator, *MockClock, *MockAccessTokenIssuer, *MockOpaqueTokenGenerator, *auth.Registration) {
+	ctrl := gomock.NewController(t)
+	store := NewMockRegistrationStore(ctrl)
+	hasher := NewMockPasswordHasher(ctrl)
+	ids := NewMockIDGenerator(ctrl)
+	clock := NewMockClock(ctrl)
+	access := NewMockAccessTokenIssuer(ctrl)
+	opaque := NewMockOpaqueTokenGenerator(ctrl)
+	var persisted auth.Registration
+	store.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, value auth.Registration) error { persisted = value; return nil })
+	hasher.EXPECT().Hash(gomock.Any()).AnyTimes().Return("hash", nil)
+	ids.EXPECT().New().AnyTimes().Return(id, idErr)
+	clock.EXPECT().Now().AnyTimes().Return(time.Unix(100, 0))
+	access.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("access", nil)
+	opaque.EXPECT().Generate().AnyTimes().Return("refresh", "hash", nil)
+	return store, hasher, ids, clock, access, opaque, &persisted
 }
 
-func (s *store) Register(_ context.Context, r auth.Registration) error { s.r = r; return s.e }
-
-type hasher struct{}
-
-func (hasher) Hash(string) (string, error) { return "hash", nil }
-
-type ids struct{ n int }
-
-func (i *ids) New() (string, error) {
-	i.n++
-	return fmt.Sprintf("0192f8a0-7b00-7000-8000-%012d", i.n), nil
-}
-
-type uuidIDs struct{ calls int }
-
-func (i *uuidIDs) New() (string, error) {
-	i.calls++
-	return "00112233-4455-6677-8899-aabbccddeeff", nil
-}
-
-type clk struct{}
-
-func (clk) Now() time.Time { return time.Unix(100, 0) }
-
-type access struct{}
-
-func (access) Issue(context.Context, user.User, time.Time) (string, error) { return "access", nil }
-
-type opaque struct{}
-
-func (opaque) Generate() (string, string, error) { return "refresh", "hash", nil }
-func valid() auth.RegisterCommand {
+func validRegistration() auth.RegisterCommand {
 	return auth.RegisterCommand{Username: "alice", Email: " A@Example.COM ", Password: "123456789012", DisplayName: "Alice"}
 }
 
-var _ = Describe("RegisterNormalizesAndPersistsAtomicPayload", func() {
-	It("runs the test", func() {
-		s := &store{}
-		svc := auth.Service{Store: s, Hasher: hasher{}, IDs: &ids{}, Clock: clk{}, Access: access{}, Opaque: opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
-		got, e := svc.Register(context.Background(), valid())
-		if e != nil {
-			Expect(false).To(BeTrue(), fmt.Sprint(e))
-		}
-		if got.User.ID == "" || got.User.Email != "a@example.com" || got.User.Role != user.RoleUser || s.r.User.PasswordHash != "hash" || s.r.Refresh.TokenHash != "hash" {
-			Expect(false).To(BeTrue(), fmt.Sprintf("bad registration: %#v %#v", got, s.r))
-		}
-		if got.Tokens.ExpiresIn != 900 || got.Tokens.RefreshExpiresIn != 604800 {
-			Expect(false).To(BeTrue(), fmt.Sprint(got.Tokens))
-		}
+func TestRegisterNormalizesAndPersistsAtomicPayload(t *testing.T) {
+	store, hasher, ids, clock, access, opaque, persisted := registrationDependencies(t, serviceUserID, nil)
+	got, err := (&auth.Service{Store: store, Hasher: hasher, IDs: ids, Clock: clock, Access: access, Opaque: opaque, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}).Register(context.Background(), validRegistration())
+	if err != nil || got.User.Email != "a@example.com" || got.User.Role != user.RoleUser || persisted.User.PasswordHash != "hash" || persisted.Refresh.TokenHash != "hash" || got.Tokens.ExpiresIn != 900 || got.Tokens.RefreshExpiresIn != 604800 {
+		t.Fatalf("result=%+v persisted=%+v err=%v", got, persisted, err)
+	}
+}
 
-	})
-})
-var _ = Describe("RegisterPreservesUUIDv7UserIDs", func() {
-	It("persists the generated canonical UUIDv7 identifier", func() {
-		store := &store{}
-		svc := auth.Service{Store: store, Hasher: hasher{}, IDs: &uuidIDs{}, Clock: clk{}, Access: access{}, Opaque: opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+func TestRegisterPreservesCanonicalUUIDv7(t *testing.T) {
+	store, hasher, ids, clock, access, opaque, persisted := registrationDependencies(t, serviceUserID, nil)
+	_, err := (&auth.Service{Store: store, Hasher: hasher, IDs: ids, Clock: clock, Access: access, Opaque: opaque}).Register(context.Background(), validRegistration())
+	if err != nil || persisted.User.ID != serviceUserID || persisted.Refresh.UserID != serviceUserID {
+		t.Fatalf("persisted=%+v err=%v", persisted, err)
+	}
+}
 
-		_, err := svc.Register(context.Background(), valid())
-
-		Expect(err).NotTo(HaveOccurred())
-		Expect(store.r.User.ID).To(Equal("00112233-4455-6677-8899-aabbccddeeff"))
-		Expect(store.r.Refresh.UserID).To(Equal(store.r.User.ID))
-	})
-})
-
-var _ = Describe("RegisterValidationPreventsPersistence", func() {
-	It("runs the test", func() {
-		s := &store{}
-		svc := auth.Service{Store: s, Hasher: hasher{}, IDs: &ids{}, Clock: clk{}, Access: access{}, Opaque: opaque{}}
-		_, e := svc.Register(context.Background(), auth.RegisterCommand{Username: "AB", Email: "bad", Password: "short", DisplayName: ""})
-		if !errors.Is(e, auth.ErrValidation) {
-			Expect(false).To(BeTrue(), fmt.Sprintf("%v", e))
-		}
-		if s.r.User.ID != "" {
-			Expect(false).To(BeTrue(), fmt.Sprint("persisted invalid registration"))
-		}
-
-	})
-})
+func TestRegisterValidationPreventsPersistence(t *testing.T) {
+	store, hasher, ids, clock, access, opaque, persisted := registrationDependencies(t, serviceUserID, nil)
+	_, err := (&auth.Service{Store: store, Hasher: hasher, IDs: ids, Clock: clock, Access: access, Opaque: opaque}).Register(context.Background(), auth.RegisterCommand{Username: "AB", Email: "bad", Password: "short"})
+	if !errors.Is(err, auth.ErrValidation) || persisted.User.ID != "" {
+		t.Fatalf("persisted=%+v err=%v", persisted, err)
+	}
+}

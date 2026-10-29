@@ -14,9 +14,16 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
+type refreshMethod interface {
+	Refresh(context.Context, string) (auth.TokenPair, error)
+}
+
 type refreshHandlerService struct {
+	*MockServicePort
+	*MockrefreshMethod
 	mu       sync.Mutex
 	result   auth.TokenPair
 	err      error
@@ -24,19 +31,16 @@ type refreshHandlerService struct {
 	lastBody string
 }
 
-func (s *refreshHandlerService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (s *refreshHandlerService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (s *refreshHandlerService) Logout(context.Context, string) error { return nil }
-func (s *refreshHandlerService) Refresh(_ context.Context, token string) (auth.TokenPair, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	s.lastBody = token
-	return s.result, s.err
+func newRefreshHandlerService(result auth.TokenPair, err error) *refreshHandlerService {
+	s := &refreshHandlerService{MockrefreshMethod: NewMockrefreshMethod(gomock.NewController(GinkgoT())), result: result, err: err}
+	s.MockrefreshMethod.EXPECT().Refresh(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, token string) (auth.TokenPair, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.calls++
+		s.lastBody = token
+		return s.result, s.err
+	})
+	return s
 }
 
 func refreshRequest(body, contentType string) *http.Request {
@@ -49,7 +53,7 @@ func refreshRequest(body, contentType string) *http.Request {
 
 var _ = Describe("RefreshHandler", func() {
 	It("returns the rotated token pair", func() {
-		service := &refreshHandlerService{result: auth.TokenPair{AccessToken: "access", RefreshToken: "next", ExpiresIn: 900, RefreshExpiresIn: 604800}}
+		service := newRefreshHandlerService(auth.TokenPair{AccessToken: "access", RefreshToken: "next", ExpiresIn: 900, RefreshExpiresIn: 604800}, nil)
 		response := httptest.NewRecorder()
 		auth.Handler{Service: service}.Refresh(response, refreshRequest(`{"refreshToken":"old"}`, "application/json"))
 
@@ -69,7 +73,7 @@ var _ = Describe("RefreshHandler", func() {
 			`{"refreshToken":"old"} null`,
 		}
 		for _, body := range cases {
-			service := &refreshHandlerService{}
+			service := newRefreshHandlerService(auth.TokenPair{}, nil)
 			response := httptest.NewRecorder()
 			auth.Handler{Service: service}.Refresh(response, refreshRequest(body, "application/json"))
 			Expect(response.Code).To(Equal(http.StatusBadRequest))
@@ -80,12 +84,12 @@ var _ = Describe("RefreshHandler", func() {
 
 	It("distinguishes malformed JSON from valid JSON with invalid fields", func() {
 		malformed := httptest.NewRecorder()
-		auth.Handler{Service: &refreshHandlerService{}}.Refresh(malformed, refreshRequest(`{"refreshToken":`, "application/json"))
+		auth.Handler{Service: newRefreshHandlerService(auth.TokenPair{}, nil)}.Refresh(malformed, refreshRequest(`{"refreshToken":`, "application/json"))
 		Expect(malformed.Code).To(Equal(http.StatusBadRequest))
 		Expect(malformed.Body.String()).To(ContainSubstring(`"code":"INVALID_JSON"`))
 
 		invalidFields := httptest.NewRecorder()
-		service := &refreshHandlerService{err: auth.ErrValidation}
+		service := newRefreshHandlerService(auth.TokenPair{}, auth.ErrValidation)
 		auth.Handler{Service: service}.Refresh(invalidFields, refreshRequest(`{"refreshToken":""}`, "application/json"))
 		Expect(invalidFields.Code).To(Equal(http.StatusBadRequest))
 		Expect(invalidFields.Body.String()).To(ContainSubstring(`"code":"INVALID_REQUEST"`))
@@ -103,7 +107,7 @@ var _ = Describe("RefreshHandler", func() {
 			{`{"refreshToken":"` + strings.Repeat("x", 128<<10) + `"}`, "application/json", http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE"},
 		}
 		for _, tc := range cases {
-			service := &refreshHandlerService{}
+			service := newRefreshHandlerService(auth.TokenPair{}, nil)
 			response := httptest.NewRecorder()
 			auth.Handler{Service: service}.Refresh(response, refreshRequest(tc.body, tc.contentType))
 			Expect(response.Code).To(Equal(tc.status))
@@ -126,15 +130,15 @@ var _ = Describe("RefreshHandler", func() {
 			response := httptest.NewRecorder()
 			r := refreshRequest(`{"refreshToken":"old"}`, "application/json")
 			r.Header.Set("X-Request-ID", "refresh-test")
-			auth.Handler{Service: &refreshHandlerService{err: tc.err}}.Refresh(response, r)
+			auth.Handler{Service: newRefreshHandlerService(auth.TokenPair{}, tc.err)}.Refresh(response, r)
 			Expect(response.Code).To(Equal(tc.status))
 			Expect(response.Body.String()).To(ContainSubstring(`"code":"` + tc.code + `"`))
 		}
 	})
 
 	It("maps an unknown refresh token from the service to 401 INVALID_REFRESH_TOKEN", func() {
-		store := &refreshStoreFake{getErr: auth.ErrInvalidRefreshToken}
-		service := &auth.Service{RefreshStore: store, Users: refreshUserLookup{}, Clock: refreshClock{now: time.Unix(100, 0)}, Access: &refreshAccess{}, Opaque: &refreshOpaque{}}
+		store := newRefreshStore(auth.RefreshSession{}, auth.ErrInvalidRefreshToken, nil, nil)
+		service := &auth.Service{RefreshStore: store, Users: newRefreshUser(user.User{}, nil), Clock: newRefreshClock(time.Unix(100, 0)), Access: newRefreshAccess(), Opaque: newRefreshOpaque()}
 		response := httptest.NewRecorder()
 		auth.Handler{Service: service}.Refresh(response, refreshRequest(`{"refreshToken":"never-issued"}`, "application/json"))
 
@@ -146,23 +150,20 @@ var _ = Describe("RefreshHandler", func() {
 
 	It("returns unavailable when refresh is not wired", func() {
 		response := httptest.NewRecorder()
-		auth.Handler{Service: &logoutOnlyRefreshService{}}.Refresh(response, refreshRequest(`{"refreshToken":"old"}`, "application/json"))
+		auth.Handler{Service: newUnwiredRefreshService()}.Refresh(response, refreshRequest(`{"refreshToken":"old"}`, "application/json"))
 		Expect(response.Code).To(Equal(http.StatusServiceUnavailable))
 		Expect(response.Body.String()).To(ContainSubstring(`"code":"SERVICE_UNAVAILABLE"`))
 	})
 })
 
-type logoutOnlyRefreshService struct{}
-
-func (*logoutOnlyRefreshService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
+func newUnwiredRefreshService() *refreshHandlerService {
+	service := &refreshHandlerService{MockServicePort: NewMockServicePort(gomock.NewController(GinkgoT())), MockrefreshMethod: NewMockrefreshMethod(gomock.NewController(GinkgoT()))}
+	service.MockrefreshMethod.EXPECT().Refresh(gomock.Any(), gomock.Any()).Return(auth.TokenPair{}, auth.ErrDependencyUnavailable)
+	return service
 }
-func (*logoutOnlyRefreshService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (*logoutOnlyRefreshService) Logout(context.Context, string) error { return nil }
 
 type concurrentRefreshStore struct {
+	*MockRefreshStore
 	mu      sync.Mutex
 	active  bool
 	rotates int
@@ -171,56 +172,55 @@ type concurrentRefreshStore struct {
 	session auth.RefreshSession
 }
 
-func (s *concurrentRefreshStore) GetRefreshSession(context.Context, string) (auth.RefreshSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.active {
-		return auth.RefreshSession{}, auth.ErrInvalidRefreshToken
-	}
-	return s.session, nil
+func newConcurrentRefreshStore(session auth.RefreshSession) *concurrentRefreshStore {
+	s := &concurrentRefreshStore{MockRefreshStore: NewMockRefreshStore(gomock.NewController(GinkgoT())), active: true, session: session}
+	s.EXPECT().GetRefreshSession(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string) (auth.RefreshSession, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if !s.active {
+			return auth.RefreshSession{}, auth.ErrInvalidRefreshToken
+		}
+		return s.session, nil
+	})
+	s.EXPECT().RotateRefreshSession(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string, auth.RefreshSession) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.rotates++
+		if !s.active {
+			return auth.ErrInvalidRefreshToken
+		}
+		s.active = false
+		s.rotated++
+		return nil
+	})
+	s.EXPECT().RevokeSessionFamilyByHash(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, string) error { s.mu.Lock(); defer s.mu.Unlock(); s.revoked = true; return nil })
+	return s
 }
-func (s *concurrentRefreshStore) RotateRefreshSession(context.Context, string, auth.RefreshSession) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.rotates++
-	if !s.active {
-		return auth.ErrInvalidRefreshToken
-	}
-	s.active = false
-	s.rotated++
-	return nil
+func newConcurrentAccess() *MockAccessTokenIssuer {
+	a := NewMockAccessTokenIssuer(gomock.NewController(GinkgoT()))
+	a.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("access", nil)
+	return a
 }
-func (s *concurrentRefreshStore) RevokeSessionFamilyByHash(context.Context, string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.revoked = true
-	return nil
+func newConcurrentOpaque() *MockOpaqueTokenGenerator {
+	o := NewMockOpaqueTokenGenerator(gomock.NewController(GinkgoT()))
+	o.EXPECT().Generate().AnyTimes().Return("next", "next-hash", nil)
+	return o
 }
-
-type concurrentAccessIssuer struct{}
-
-func (concurrentAccessIssuer) Issue(context.Context, user.User, time.Time) (string, error) {
-	return "access", nil
+func newConcurrentClock() *MockClock {
+	c := NewMockClock(gomock.NewController(GinkgoT()))
+	c.EXPECT().Now().AnyTimes().Return(time.Unix(100, 0))
+	return c
 }
-
-type concurrentOpaqueGenerator struct{}
-
-func (concurrentOpaqueGenerator) Generate() (string, string, error) { return "next", "next-hash", nil }
-
-type concurrentClock struct{}
-
-func (concurrentClock) Now() time.Time { return time.Unix(100, 0) }
-
-type concurrentUserLookup struct{}
-
-func (concurrentUserLookup) FindByID(context.Context, string) (user.User, error) {
-	return user.User{Role: user.Role("user"), Status: user.StatusActive}, nil
+func newConcurrentUser() *MockUserLookup {
+	u := NewMockUserLookup(gomock.NewController(GinkgoT()))
+	u.EXPECT().FindByID(gomock.Any(), gomock.Any()).AnyTimes().Return(user.User{Role: user.Role("user"), Status: user.StatusActive}, nil)
+	return u
 }
 
 var _ = Describe("RefreshService concurrency", func() {
 	It("allows one rotation and revokes the replay", func() {
-		store := &concurrentRefreshStore{active: true, session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"}}
-		service := &auth.Service{RefreshStore: store, Users: concurrentUserLookup{}, Clock: concurrentClock{}, Access: concurrentAccessIssuer{}, Opaque: concurrentOpaqueGenerator{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+		store := newConcurrentRefreshStore(auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000001", SessionID: "0192f8a0-7b00-7000-8000-000000000010", Status: "active"})
+		service := &auth.Service{RefreshStore: store, Users: newConcurrentUser(), Clock: newConcurrentClock(), Access: newConcurrentAccess(), Opaque: newConcurrentOpaque(), AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
 		start := make(chan struct{})
 		results := make(chan error, 2)
 		for range 2 {

@@ -2,24 +2,25 @@ package dynamodb
 
 import (
 	"context"
-	"net"
 	"strconv"
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
+	"github.com/antoniuk-oleksandr/social-media/internal/platform/clock"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type testNetworkError struct{}
-
-func (testNetworkError) Error() string   { return "network" }
-func (testNetworkError) Timeout() bool   { return true }
-func (testNetworkError) Temporary() bool { return true }
-
-var _ net.Error = testNetworkError{}
+func networkError() *MockError {
+	err := NewMockError(gomock.NewController(GinkgoT()))
+	err.EXPECT().Error().AnyTimes().Return("network")
+	err.EXPECT().Timeout().AnyTimes().Return(true)
+	err.EXPECT().Temporary().AnyTimes().Return(true)
+	return err
+}
 
 func canceled(codes ...string) error {
 	reasons := make([]types.CancellationReason, len(codes))
@@ -32,8 +33,8 @@ func canceled(codes ...string) error {
 var _ = Describe("RotateRefreshSession", func() {
 	It("builds an atomic consume-and-create transaction", func() {
 		now := time.Unix(1_700_000_000, 0).UTC()
-		api := &fakeAPI{}
-		store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: now}}
+		api := newRegistrationAPI(nil, nil, nil, nil)
+		store := Store{Client: api, RefreshTable: "refresh", Clock: clock.Fixed{T: now}}
 		next := auth.RefreshSession{TokenHash: "next-hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: "0192f8a0-7b00-7000-8000-000000000001", CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour)}
 
 		Expect(store.RotateRefreshSession(context.Background(), "old-hash", next)).To(Succeed())
@@ -60,10 +61,10 @@ var _ = Describe("RotateRefreshSession", func() {
 			want error
 		}{
 			{name: "conditional", err: canceled("ConditionalCheckFailed"), want: auth.ErrInvalidRefreshToken},
-			{name: "dependency", err: testNetworkError{}, want: auth.ErrDependencyUnavailable},
+			{name: "dependency", err: networkError(), want: auth.ErrDependencyUnavailable},
 		} {
 			By(tc.name)
-			store := Store{Client: &fakeAPI{transactionErr: tc.err}, RefreshTable: "refresh"}
+			store := Store{Client: newRegistrationAPI(tc.err, nil, nil, nil), RefreshTable: "refresh"}
 			Expect(store.RotateRefreshSession(context.Background(), "old-hash", next)).To(MatchError(tc.want))
 		}
 	})
@@ -78,8 +79,8 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 			"userId":    &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000001"},
 			"status":    &types.AttributeValueMemberS{Value: "consumed"},
 		}
-		api := &fakeAPI{items: map[string]map[string]types.AttributeValue{"old-hash": item}}
-		store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: now}}
+		api := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{"old-hash": item})
+		store := Store{Client: api, RefreshTable: "refresh", Clock: clock.Fixed{T: now}}
 
 		Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(Succeed())
 		put := api.transactionIn.TransactItems[0].Put
@@ -101,13 +102,13 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 			write  error
 			want   error
 		}{
-			{name: "lookup dependency", getErr: testNetworkError{}, want: auth.ErrDependencyUnavailable},
-			{name: "write dependency", write: testNetworkError{}, want: auth.ErrDependencyUnavailable},
+			{name: "lookup dependency", getErr: networkError(), want: auth.ErrDependencyUnavailable},
+			{name: "write dependency", write: networkError(), want: auth.ErrDependencyUnavailable},
 			{name: "conditional write", write: canceled("ConditionalCheckFailed")},
 		} {
 			By(tc.name)
-			api := &fakeAPI{items: map[string]map[string]types.AttributeValue{"old-hash": item}, getErr: tc.getErr, transactionErr: tc.write}
-			store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: now}}
+			api := newRegistrationAPI(tc.write, tc.getErr, nil, map[string]map[string]types.AttributeValue{"old-hash": item})
+			store := Store{Client: api, RefreshTable: "refresh", Clock: clock.Fixed{T: now}}
 			if tc.want == nil {
 				Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(Succeed())
 			} else {
@@ -127,12 +128,12 @@ var _ = Describe("RevokeSessionFamilyByHash", func() {
 			{name: "non-v7 session ID", sessionID: "0192f8a0-7b00-6000-8000-000000000010", userID: "0192f8a0-7b00-7000-8000-000000000001"},
 		} {
 			By(tc.name)
-			api := &fakeAPI{items: map[string]map[string]types.AttributeValue{"old-hash": {
+			api := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{"old-hash": {
 				"tokenHash": &types.AttributeValueMemberS{Value: "old-hash"},
 				"sessionId": &types.AttributeValueMemberS{Value: tc.sessionID},
 				"userId":    &types.AttributeValueMemberS{Value: tc.userID},
-			}}}
-			store := Store{Client: api, RefreshTable: "refresh", Clock: fixedStoreClock{at: time.Unix(1_700_000_000, 0).UTC()}}
+			}})
+			store := Store{Client: api, RefreshTable: "refresh", Clock: clock.Fixed{T: time.Unix(1_700_000_000, 0).UTC()}}
 
 			Expect(store.RevokeSessionFamilyByHash(context.Background(), "old-hash")).To(MatchError(auth.ErrInvalidRefreshToken))
 			Expect(api.transactionN).To(Equal(0))
@@ -147,7 +148,7 @@ var _ = Describe("RotateRefreshSessionRejectsInvalidPersistenceIDs", func() {
 			{SessionID: "invalid", UserID: "0192f8a0-7b00-7000-8000-000000000001"},
 			{SessionID: "0192f8a0-7b00-7000-8000-000000000002", UserID: "invalid"},
 		} {
-			api := &fakeAPI{}
+			api := newRegistrationAPI(nil, nil, nil, nil)
 			err := (Store{Client: api}).RotateRefreshSession(context.Background(), "old", next)
 			Expect(err).To(MatchError(ContainSubstring("invalid refresh session ID")))
 			Expect(api.transactionIn).To(BeNil())

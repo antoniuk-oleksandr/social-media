@@ -15,10 +15,12 @@ import (
 )
 
 type PostRepository struct {
-	Client interface {
-		Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
-	}
+	Client    API
 	TableName string
+}
+
+type API interface {
+	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
 func NewPostRepository(client *dynamodb.Client, table string) feed.PostSource {

@@ -7,40 +7,34 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
-
-type batchGetAPI struct {
-	calls  int
-	inputs []*dynamodb.BatchGetItemInput
-	items  []map[string]types.AttributeValue
-}
-
-func (f *batchGetAPI) GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	return nil, nil
-}
-
-func (f *batchGetAPI) BatchGetItem(_ context.Context, input *dynamodb.BatchGetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
-	f.calls++
-	f.inputs = append(f.inputs, input)
-	return &dynamodb.BatchGetItemOutput{Responses: map[string][]map[string]types.AttributeValue{"users": f.items}}, nil
-}
 
 var _ = Describe("batch user lookup", func() {
 	It("loads unique authors with one BatchGetItem request", func() {
 		firstID := "0192f8a0-7b00-7000-8000-000000000001"
 		secondID := "0192f8a0-7b00-7000-8000-000000000002"
-		api := &batchGetAPI{items: []map[string]types.AttributeValue{
+		ctrl := gomock.NewController(GinkgoT())
+		api := NewMockAPI(ctrl)
+		var calls int
+		var inputs []*dynamodb.BatchGetItemInput
+		items := []map[string]types.AttributeValue{
 			userItem(firstID, "alice"),
 			userItem(secondID, "bob"),
-		}}
+		}
+		api.EXPECT().BatchGetItem(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, input *dynamodb.BatchGetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
+			calls++
+			inputs = append(inputs, input)
+			return &dynamodb.BatchGetItemOutput{Responses: map[string][]map[string]types.AttributeValue{"users": items}}, nil
+		})
 		repository := &Repository{Client: api, TableName: "users"}
 
 		users, err := repository.GetByIDs(context.Background(), []string{firstID, secondID, firstID})
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(users).To(HaveLen(2))
-		Expect(api.calls).To(Equal(1))
-		Expect(api.inputs[0].RequestItems["users"].Keys).To(HaveLen(2))
+		Expect(calls).To(Equal(1))
+		Expect(inputs[0].RequestItems["users"].Keys).To(HaveLen(2))
 	})
 })
 

@@ -18,9 +18,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
+	"go.uber.org/mock/gomock"
 )
 
-type fakeAPI struct {
+type registrationAPIFixture struct {
+	*MockAPI
+	*MockqueryAPI
 	transactionErr error
 	transactionIn  *dynamodb.TransactWriteItemsInput
 	transactionN   int
@@ -29,29 +32,48 @@ type fakeAPI struct {
 	queryErr       error
 	queryOut       *dynamodb.QueryOutput
 	mu             sync.Mutex
+	getCalls       int
+	secondGetErr   error
 }
 
-func (f *fakeAPI) TransactWriteItems(_ context.Context, in *dynamodb.TransactWriteItemsInput, _ ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.transactionIn = in
-	f.transactionN++
-	return &dynamodb.TransactWriteItemsOutput{}, f.transactionErr
-}
-func (f *fakeAPI) GetItem(_ context.Context, in *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.getErr != nil {
-		return nil, f.getErr
-	}
-	keyName := "uniqueKey"
-	if _, ok := in.Key["tokenHash"]; ok {
-		keyName = "tokenHash"
-	} else if _, ok := in.Key["userId"]; ok {
-		keyName = "userId"
-	}
-	key := in.Key[keyName].(*types.AttributeValueMemberS).Value
-	return &dynamodb.GetItemOutput{Item: f.items[key]}, nil
+func newRegistrationAPI(transactionErr, getErr, queryErr error, items map[string]map[string]types.AttributeValue) *registrationAPIFixture {
+	f := &registrationAPIFixture{MockAPI: NewMockAPI(gomock.NewController(GinkgoT())), MockqueryAPI: NewMockqueryAPI(gomock.NewController(GinkgoT())), transactionErr: transactionErr, getErr: getErr, queryErr: queryErr, items: items}
+	f.MockAPI.EXPECT().TransactWriteItems(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, in *dynamodb.TransactWriteItemsInput, _ ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.transactionIn = in
+		f.transactionN++
+		return &dynamodb.TransactWriteItemsOutput{}, f.transactionErr
+	})
+	f.MockAPI.EXPECT().GetItem(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, in *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.getCalls++
+		if f.secondGetErr != nil && f.getCalls == 2 {
+			return nil, f.secondGetErr
+		}
+		if f.getErr != nil {
+			return nil, f.getErr
+		}
+		keyName := "uniqueKey"
+		if _, ok := in.Key["tokenHash"]; ok {
+			keyName = "tokenHash"
+		} else if _, ok := in.Key["userId"]; ok {
+			keyName = "userId"
+		}
+		key := in.Key[keyName].(*types.AttributeValueMemberS).Value
+		return &dynamodb.GetItemOutput{Item: f.items[key]}, nil
+	})
+	f.MockqueryAPI.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+		if f.queryErr != nil {
+			return nil, f.queryErr
+		}
+		if f.queryOut != nil {
+			return f.queryOut, nil
+		}
+		return &dynamodb.QueryOutput{}, nil
+	})
+	return f
 }
 
 func registration() auth.Registration {
@@ -60,19 +82,9 @@ func registration() auth.Registration {
 	return auth.Registration{User: user.User{ID: id, Username: "alice", Email: "alice@example.com", PasswordHash: "hash", DisplayName: "Alice", Role: user.RoleUser, Status: user.StatusActive, CreatedAt: now}, Refresh: auth.RefreshSession{TokenHash: "refresh-hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: id, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}}
 }
 
-func (f *fakeAPI) Query(_ context.Context, _ *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	if f.queryErr != nil {
-		return nil, f.queryErr
-	}
-	if f.queryOut != nil {
-		return f.queryOut, nil
-	}
-	return &dynamodb.QueryOutput{}, nil
-}
-
 var _ = Describe("RegisterMapsEmailCancellationReason", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{transactionErr: canceled("ConditionalCheckFailed", "None")}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+		store := Store{Client: newRegistrationAPI(canceled("ConditionalCheckFailed", "None"), nil, nil, nil), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); !errors.Is(err, auth.ErrEmailTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 		}
@@ -82,7 +94,7 @@ var _ = Describe("RegisterMapsEmailCancellationReason", func() {
 
 var _ = Describe("RegisterMapsUsernameCancellationReason", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{transactionErr: canceled("None", "ConditionalCheckFailed")}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+		store := Store{Client: newRegistrationAPI(canceled("None", "ConditionalCheckFailed"), nil, nil, nil), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); !errors.Is(err, auth.ErrUsernameTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 		}
@@ -92,7 +104,7 @@ var _ = Describe("RegisterMapsUsernameCancellationReason", func() {
 
 var _ = Describe("RegisterTreatsBothCancellationReasonsAsAmbiguous", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{transactionErr: canceled("ConditionalCheckFailed", "ConditionalCheckFailed")}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+		store := Store{Client: newRegistrationAPI(canceled("ConditionalCheckFailed", "ConditionalCheckFailed"), nil, nil, nil), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); err == nil || errors.Is(err, auth.ErrEmailTaken) || errors.Is(err, auth.ErrUsernameTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 		}
@@ -110,8 +122,8 @@ var _ = Describe("RegisterFallbackIdentifiesSingleReservation", func() {
 			{"username", "USERNAME#alice", auth.ErrUsernameTaken},
 		} {
 			{
-				store := Store{Client: &fakeAPI{transactionErr: canceled()}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
-				store.Client.(*fakeAPI).items = map[string]map[string]types.AttributeValue{tc.key: {"uniqueKey": &types.AttributeValueMemberS{Value: tc.key}}}
+				store := Store{Client: newRegistrationAPI(canceled(), nil, nil, nil), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+				store.Client.(*registrationAPIFixture).items = map[string]map[string]types.AttributeValue{tc.key: {"uniqueKey": &types.AttributeValueMemberS{Value: tc.key}}}
 				if err := store.Register(context.Background(), registration()); !errors.Is(err, tc.want) {
 					Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 				}
@@ -123,10 +135,10 @@ var _ = Describe("RegisterFallbackIdentifiesSingleReservation", func() {
 
 var _ = Describe("RegisterFallbackUsesDeterministicUsernamePrecedenceWhenBothExist", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{transactionErr: canceled(), items: map[string]map[string]types.AttributeValue{
+		store := Store{Client: newRegistrationAPI(canceled(), nil, nil, map[string]map[string]types.AttributeValue{
 			"EMAIL#alice@example.com": {"uniqueKey": &types.AttributeValueMemberS{Value: "email"}},
 			"USERNAME#alice":          {"uniqueKey": &types.AttributeValueMemberS{Value: "username"}},
-		}}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+		}), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); !errors.Is(err, auth.ErrUsernameTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 		}
@@ -136,7 +148,7 @@ var _ = Describe("RegisterFallbackUsesDeterministicUsernamePrecedenceWhenBothExi
 
 var _ = Describe("RegisterFallbackTreatsNeitherReservationAsAmbiguous", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{transactionErr: canceled(), items: map[string]map[string]types.AttributeValue{}}, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
+		store := Store{Client: newRegistrationAPI(canceled(), nil, nil, map[string]map[string]types.AttributeValue{}), UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); err == nil || errors.Is(err, auth.ErrEmailTaken) || errors.Is(err, auth.ErrUsernameTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
 		}
@@ -146,7 +158,7 @@ var _ = Describe("RegisterFallbackTreatsNeitherReservationAsAmbiguous", func() {
 
 var _ = Describe("RegisterConcurrentDuplicateUsesCancellationReason", func() {
 	It("runs the test", func() {
-		api := &fakeAPI{transactionErr: canceled("None", "ConditionalCheckFailed")}
+		api := newRegistrationAPI(canceled("None", "ConditionalCheckFailed"), nil, nil, nil)
 		store := Store{Client: api, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)
@@ -174,12 +186,9 @@ var _ = Describe("RegisterConcurrentDuplicateUsesCancellationReason", func() {
 
 var _ = Describe("RegisterMapsGenericTransactionCanceledErrorUsingReservations", func() {
 	It("runs the test", func() {
-		api := &fakeAPI{
-			transactionErr: &smithy.GenericAPIError{Code: "TransactionCanceledException", Message: "Transaction cancelled"},
-			items: map[string]map[string]types.AttributeValue{
-				"USERNAME#alice": {"uniqueKey": &types.AttributeValueMemberS{Value: "USERNAME#alice"}},
-			},
-		}
+		api := newRegistrationAPI(&smithy.GenericAPIError{Code: "TransactionCanceledException", Message: "Transaction cancelled"}, nil, nil, map[string]map[string]types.AttributeValue{
+			"USERNAME#alice": {"uniqueKey": &types.AttributeValueMemberS{Value: "USERNAME#alice"}},
+		})
 		store := Store{Client: api, UniquesTable: "uniques", UsersTable: "users", RefreshTable: "refresh"}
 		if err := store.Register(context.Background(), registration()); !errors.Is(err, auth.ErrUsernameTaken) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("got %v", err))
@@ -190,7 +199,7 @@ var _ = Describe("RegisterMapsGenericTransactionCanceledErrorUsingReservations",
 
 var _ = Describe("RegisterSuccess", func() {
 	It("runs the test", func() {
-		store := Store{Client: &fakeAPI{}, UniquesTable: "u", UsersTable: "users", RefreshTable: "r"}
+		store := Store{Client: newRegistrationAPI(nil, nil, nil, nil), UniquesTable: "u", UsersTable: "users", RefreshTable: "r"}
 		if err := store.Register(context.Background(), registration()); err != nil {
 			Expect(false).To(BeTrue(), fmt.Sprint(err))
 		}
@@ -207,7 +216,7 @@ var _ = Describe("RegisterBuildsCompleteTransactionPayload", func() {
 		Expect(platformid.IsCanonicalUUIDv7(r.Refresh.UserID)).To(BeTrue())
 		r.Refresh.CreatedAt = created
 		r.Refresh.ExpiresAt = expires
-		api := &fakeAPI{}
+		api := newRegistrationAPI(nil, nil, nil, nil)
 		store := Store{Client: api, UniquesTable: "uniques-table", UsersTable: "users-table", RefreshTable: "refresh-table"}
 
 		if err := store.Register(context.Background(), r); err != nil {
@@ -288,12 +297,12 @@ var _ = Describe("RegisterBuildsCompleteTransactionPayload", func() {
 var _ = Describe("RegisterWrapsTransactionAndLookupErrors", func() {
 	It("runs the test", func() {
 		tx := errors.New("transaction")
-		store := Store{Client: &fakeAPI{transactionErr: tx}, UniquesTable: "u", UsersTable: "users", RefreshTable: "r"}
+		store := Store{Client: newRegistrationAPI(tx, nil, nil, nil), UniquesTable: "u", UsersTable: "users", RefreshTable: "r"}
 		if err := store.Register(context.Background(), registration()); err == nil || !errors.Is(err, tx) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("%v", err))
 		}
 		lookup := errors.New("lookup")
-		store.Client = &fakeAPI{transactionErr: canceled(), getErr: lookup}
+		store.Client = newRegistrationAPI(canceled(), lookup, nil, nil)
 		if err := store.Register(context.Background(), registration()); err == nil || !errors.Is(err, lookup) {
 			Expect(false).To(BeTrue(), fmt.Sprintf("%v", err))
 		}
@@ -327,7 +336,7 @@ var _ = Describe("DependencyErrorClassification", func() {
 		if !isDependencyUnavailable(apiErr) {
 			Expect(false).To(BeTrue(), fmt.Sprint("API error should be unavailable"))
 		}
-		if !isDependencyUnavailable(testNetworkError{}) {
+		if !isDependencyUnavailable(networkError()) {
 			Expect(false).To(BeTrue(), fmt.Sprint("network error should be unavailable"))
 		}
 		ordinary := errors.New("ordinary")
@@ -341,22 +350,10 @@ var _ = Describe("DependencyErrorClassification", func() {
 	})
 })
 
-type secondLookupError struct {
-	fakeAPI
-	calls int
-}
-
-func (f *secondLookupError) GetItem(ctx context.Context, in *dynamodb.GetItemInput, opts ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	f.calls++
-	if f.calls == 2 {
-		return nil, errors.New("second lookup")
-	}
-	return f.fakeAPI.GetItem(ctx, in, opts...)
-}
-
 var _ = Describe("LookupReservationConflictPropagatesSecondLookupError", func() {
 	It("runs the test", func() {
-		errClient := &secondLookupError{fakeAPI: fakeAPI{items: map[string]map[string]types.AttributeValue{}}}
+		errClient := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{})
+		errClient.secondGetErr = errors.New("second lookup")
 		store := Store{Client: errClient, UniquesTable: "uniques"}
 		if _, err := store.lookupReservationConflict(context.Background(), "email", "username"); err == nil || !strings.Contains(err.Error(), "second lookup") {
 			Expect(false).To(BeTrue(), fmt.Sprintf("lookup error = %v", err))
@@ -367,14 +364,14 @@ var _ = Describe("LookupReservationConflictPropagatesSecondLookupError", func() 
 var _ = Describe("FindByID", func() {
 	It("maps a stored user and uses a strongly consistent lookup", func() {
 		created := time.Unix(100, 0).UTC()
-		api := &fakeAPI{items: map[string]map[string]types.AttributeValue{
+		api := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{
 			"0192f8a0-7b00-7000-8000-000000000002": {
 				"userId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000002"}, "username": &types.AttributeValueMemberS{Value: "alice"},
 				"email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"},
 				"displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"},
 				"status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
 			},
-		}}
+		})
 		got, err := (Store{Client: api, UsersTable: "users"}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000002")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.ID).To(Equal("0192f8a0-7b00-7000-8000-000000000002"))
@@ -382,17 +379,17 @@ var _ = Describe("FindByID", func() {
 	})
 
 	It("maps missing, dependency, and malformed records", func() {
-		missing := &fakeAPI{items: map[string]map[string]types.AttributeValue{}}
+		missing := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{})
 		_, err := (Store{Client: missing}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000099")
 		Expect(err).To(MatchError(user.ErrNotFound))
 
-		dependency := &fakeAPI{getErr: testNetworkError{}}
+		dependency := newRegistrationAPI(nil, networkError(), nil, nil)
 		_, err = (Store{Client: dependency}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000003")
 		Expect(errors.Is(err, auth.ErrDependencyUnavailable)).To(BeTrue())
 
-		malformed := &fakeAPI{items: map[string]map[string]types.AttributeValue{
+		malformed := newRegistrationAPI(nil, nil, nil, map[string]map[string]types.AttributeValue{
 			"0192f8a0-7b00-7000-8000-000000000003": {"createdAt": &types.AttributeValueMemberS{Value: "not-a-time"}},
-		}}
+		})
 		_, err = (Store{Client: malformed}).FindByID(context.Background(), "0192f8a0-7b00-7000-8000-000000000003")
 		Expect(err).To(MatchError(user.ErrDependencyUnavailable))
 	})
@@ -405,7 +402,7 @@ var _ = Describe("RegisterRejectsInvalidPersistenceIDs", func() {
 			func(r *auth.Registration) { r.Refresh.SessionID = "numeric-session" },
 			func(r *auth.Registration) { r.Refresh.UserID = "numeric-user" },
 		} {
-			api := &fakeAPI{}
+			api := newRegistrationAPI(nil, nil, nil, nil)
 			r := registration()
 			mutate(&r)
 			err := (Store{Client: api}).Register(context.Background(), r)

@@ -13,9 +13,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type loginStoreAPI struct {
+type loginStoreAPIFixture struct {
+	*MockAPI
+	*MockqueryAPI
 	queryOut *dynamodb.QueryOutput
 	queryErr error
 	transErr error
@@ -23,27 +26,21 @@ type loginStoreAPI struct {
 	transIn  *dynamodb.TransactWriteItemsInput
 }
 
-type loginStoreWithoutQuery struct{}
-
-func (loginStoreWithoutQuery) GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{}, nil
+func newLoginStoreAPI(queryOut *dynamodb.QueryOutput, queryErr, transErr error) *loginStoreAPIFixture {
+	f := &loginStoreAPIFixture{MockAPI: NewMockAPI(gomock.NewController(GinkgoT())), MockqueryAPI: NewMockqueryAPI(gomock.NewController(GinkgoT())), queryOut: queryOut, queryErr: queryErr, transErr: transErr}
+	f.MockAPI.EXPECT().GetItem(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(&dynamodb.GetItemOutput{}, nil)
+	f.MockqueryAPI.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, in *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+		f.queryIn = in
+		return f.queryOut, f.queryErr
+	})
+	f.MockAPI.EXPECT().TransactWriteItems(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, in *dynamodb.TransactWriteItemsInput, _ ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+		f.transIn = in
+		return &dynamodb.TransactWriteItemsOutput{}, f.transErr
+	})
+	return f
 }
 
-func (loginStoreWithoutQuery) TransactWriteItems(context.Context, *dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
-	return &dynamodb.TransactWriteItemsOutput{}, nil
-}
-
-func (f *loginStoreAPI) GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	return &dynamodb.GetItemOutput{}, nil
-}
-func (f *loginStoreAPI) Query(_ context.Context, in *dynamodb.QueryInput, _ ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
-	f.queryIn = in
-	return f.queryOut, f.queryErr
-}
-func (f *loginStoreAPI) TransactWriteItems(_ context.Context, in *dynamodb.TransactWriteItemsInput, _ ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
-	f.transIn = in
-	return &dynamodb.TransactWriteItemsOutput{}, f.transErr
-}
+func newLoginStoreWithoutQuery() *MockAPI { return NewMockAPI(gomock.NewController(GinkgoT())) }
 
 var _ = Describe("LoginStoreFindByLogin", func() {
 	It("maps users and chooses the username or email index", func() {
@@ -54,9 +51,9 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 			{login: "alice", index: "UsernameIndex", field: "username"},
 			{login: "alice@example.com", index: "EmailIndex", field: "email"},
 		} {
-			api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{
+			api := newLoginStoreAPI(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{
 				"userId": &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000001"}, "username": &types.AttributeValueMemberS{Value: "alice"}, "email": &types.AttributeValueMemberS{Value: "alice@example.com"}, "passwordHash": &types.AttributeValueMemberS{Value: "hash"}, "displayName": &types.AttributeValueMemberS{Value: "Alice"}, "role": &types.AttributeValueMemberS{Value: "user"}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: created.Format(time.RFC3339)},
-			}}}}
+			}}}, nil, nil)
 			store := Store{Client: api, UsersTable: "users"}
 			got, err := store.FindByLogin(context.Background(), tc.login)
 			Expect(err).NotTo(HaveOccurred())
@@ -71,13 +68,12 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 	})
 
 	It("uses the first page deterministically when DynamoDB reports more results", func() {
-		api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{
+		api := newLoginStoreAPI(&dynamodb.QueryOutput{
 			Items: []map[string]types.AttributeValue{{
 				"userId":    &types.AttributeValueMemberS{Value: "0192f8a0-7b00-7000-8000-000000000002"},
 				"createdAt": &types.AttributeValueMemberS{Value: time.Unix(100, 0).UTC().Format(time.RFC3339)},
-			}},
-			LastEvaluatedKey: map[string]types.AttributeValue{"email": &types.AttributeValueMemberS{Value: "next"}},
-		}}
+			}}, LastEvaluatedKey: map[string]types.AttributeValue{"email": &types.AttributeValueMemberS{Value: "next"}},
+		}, nil, nil)
 		got, err := (Store{Client: api}).FindByLogin(context.Background(), "a@example.com")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.ID).To(Equal("0192f8a0-7b00-7000-8000-000000000002"))
@@ -87,11 +83,11 @@ var _ = Describe("LoginStoreFindByLogin", func() {
 
 var _ = Describe("LoginStoreFindByLoginFailures", func() {
 	It("maps missing, malformed, and query failures", func() {
-		missing := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{}}
+		missing := newLoginStoreAPI(&dynamodb.QueryOutput{}, nil, nil)
 		_, err := (Store{Client: missing}).FindByLogin(context.Background(), "alice")
 		Expect(err).To(MatchError(user.ErrNotFound))
 
-		api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{"createdAt": &types.AttributeValueMemberS{Value: "bad"}}}}}
+		api := newLoginStoreAPI(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{"createdAt": &types.AttributeValueMemberS{Value: "bad"}}}}, nil, nil)
 		_, err = (Store{Client: api}).FindByLogin(context.Background(), "alice")
 		Expect(err).To(HaveOccurred())
 
@@ -103,16 +99,16 @@ var _ = Describe("LoginStoreFindByLoginFailures", func() {
 
 var _ = Describe("LoginStoreFindByLoginDependencies", func() {
 	It("rejects a client without query support", func() {
-		_, err := (Store{Client: loginStoreWithoutQuery{}}).FindByLogin(context.Background(), "alice")
+		_, err := (Store{Client: newLoginStoreWithoutQuery()}).FindByLogin(context.Background(), "alice")
 		Expect(err).To(MatchError(auth.ErrDependencyUnavailable))
 	})
 })
 
 var _ = Describe("LoginStoreAttributeMapping", func() {
 	It("maps absent optional attributes to empty values", func() {
-		api := &loginStoreAPI{queryOut: &dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{
+		api := newLoginStoreAPI(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{{
 			"createdAt": &types.AttributeValueMemberS{Value: time.Unix(100, 0).UTC().Format(time.RFC3339)},
-		}}}}
+		}}}, nil, nil)
 		got, err := (Store{Client: api}).FindByLogin(context.Background(), "alice")
 		Expect(err).To(MatchError(auth.ErrDependencyUnavailable))
 		Expect(got.ID).To(BeEmpty())
@@ -123,7 +119,7 @@ var _ = Describe("LoginStoreCreateLoginSession", func() {
 	It("writes expiry and translates failures", func() {
 		created := time.Unix(100, 0).UTC()
 		expires := created.Add(7 * 24 * time.Hour)
-		api := &loginStoreAPI{}
+		api := newLoginStoreAPI(nil, nil, nil)
 		store := Store{Client: api, RefreshTable: "refresh"}
 		Expect(store.CreateLoginSession(context.Background(), auth.RefreshSession{TokenHash: "hash", SessionID: "0192f8a0-7b00-7000-8000-000000000003", UserID: "0192f8a0-7b00-7000-8000-000000000001", CreatedAt: created, ExpiresAt: expires})).To(Succeed())
 		Expect(platformid.IsCanonicalUUIDv7("0192f8a0-7b00-7000-8000-000000000001")).To(BeTrue())
@@ -143,7 +139,7 @@ var _ = Describe("CreateLoginSessionRejectsInvalidPersistenceIDs", func() {
 			{SessionID: "invalid", UserID: "0192f8a0-7b00-7000-8000-000000000001"},
 			{SessionID: "0192f8a0-7b00-7000-8000-000000000002", UserID: "invalid"},
 		} {
-			api := &loginStoreAPI{}
+			api := newLoginStoreAPI(nil, nil, nil)
 			err := (Store{Client: api}).CreateLoginSession(context.Background(), session)
 			Expect(errors.Is(err, auth.ErrValidation)).To(BeTrue())
 			Expect(api.transIn).To(BeNil())

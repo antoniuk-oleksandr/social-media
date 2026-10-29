@@ -9,36 +9,33 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 	"os"
 )
-
-type fakeClient struct {
-	n      int
-	err    error
-	inputs []*dynamodb.CreateTableInput
-}
-
-func (f *fakeClient) CreateTable(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
-	f.n++
-	f.inputs = append(f.inputs, input)
-	return &dynamodb.CreateTableOutput{}, f.err
-}
 
 var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 	It("runs the test", func() {
 		os.Setenv("DYNAMODB_ENDPOINT", "http://local")
 		defer os.Unsetenv("DYNAMODB_ENDPOINT")
-		f := &fakeClient{err: &types.ResourceInUseException{}}
+		ctrl := gomock.NewController(GinkgoT())
+		f := NewMocktableCreator(ctrl)
+		var inputs []*dynamodb.CreateTableInput
+		calls := 0
+		f.EXPECT().CreateTable(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, input *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
+			calls++
+			inputs = append(inputs, input)
+			return &dynamodb.CreateTableOutput{}, &types.ResourceInUseException{}
+		})
 		count := 0
 		e := run(context.Background(), func(context.Context, string) (aws.Config, error) { return aws.Config{}, nil }, func(aws.Config) tableCreator { return f }, func(string, ...any) (int, error) { count++; return 0, nil })
-		if e != nil || f.n != 5 || count != 5 {
-			Expect(false).To(BeTrue(), fmt.Sprintf("e=%v n=%d count=%d", e, f.n, count))
+		if e != nil || calls != 5 || count != 5 {
+			Expect(false).To(BeTrue(), fmt.Sprintf("e=%v n=%d count=%d", e, calls, count))
 		}
-		if len(f.inputs) != 5 {
-			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 5", len(f.inputs)))
+		if len(inputs) != 5 {
+			Expect(false).To(BeTrue(), fmt.Sprintf("captured inputs=%d, want 5", len(inputs)))
 		}
 		assertIndex := func(table int, name, attribute string) {
-			input := f.inputs[table]
+			input := inputs[table]
 			for _, index := range input.GlobalSecondaryIndexes {
 				if aws.ToString(index.IndexName) == name {
 					if len(index.KeySchema) != 1 || aws.ToString(index.KeySchema[0].AttributeName) != attribute || index.KeySchema[0].KeyType != types.KeyTypeHash {
@@ -56,7 +53,7 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 		assertIndex(0, "UsernameIndex", "username")
 		assertIndex(2, "SessionIdIndex", "sessionId")
 		assertCompositeIndex := func(table int, name, hash, sort string) {
-			input := f.inputs[table]
+			input := inputs[table]
 			for _, index := range input.GlobalSecondaryIndexes {
 				if aws.ToString(index.IndexName) == name {
 					if len(index.KeySchema) != 2 || aws.ToString(index.KeySchema[0].AttributeName) != hash || index.KeySchema[0].KeyType != types.KeyTypeHash || aws.ToString(index.KeySchema[1].AttributeName) != sort || index.KeySchema[1].KeyType != types.KeyTypeRange {
@@ -72,8 +69,8 @@ var _ = Describe("RunCreatesTablesAndAllowsAlreadyExists", func() {
 		}
 		assertCompositeIndex(3, "FeedPostsIndex", "feedPartition", "createdAtEpoch")
 		assertCompositeIndex(4, "ActiveAdsIndex", "status", "createdAtEpoch")
-		if len(f.inputs[1].GlobalSecondaryIndexes) != 0 {
-			Expect(false).To(BeTrue(), fmt.Sprintf("uniques GSIs=%d, want 0", len(f.inputs[1].GlobalSecondaryIndexes)))
+		if len(inputs[1].GlobalSecondaryIndexes) != 0 {
+			Expect(false).To(BeTrue(), fmt.Sprintf("uniques GSIs=%d, want 0", len(inputs[1].GlobalSecondaryIndexes)))
 		}
 
 	})
@@ -84,7 +81,9 @@ var _ = Describe("RunPropagatesLoadAndTableErrors", func() {
 		if e := run(context.Background(), func(context.Context, string) (aws.Config, error) { return aws.Config{}, want }, nil, nil); !errors.Is(e, want) {
 			Expect(false).To(BeTrue(), fmt.Sprint(e))
 		}
-		f := &fakeClient{err: want}
+		ctrl := gomock.NewController(GinkgoT())
+		f := NewMocktableCreator(ctrl)
+		f.EXPECT().CreateTable(gomock.Any(), gomock.Any()).AnyTimes().Return((*dynamodb.CreateTableOutput)(nil), want)
 		e := run(context.Background(), func(context.Context, string) (aws.Config, error) { return aws.Config{}, nil }, func(aws.Config) tableCreator { return f }, func(string, ...any) (int, error) { return 0, nil })
 		if !errors.Is(e, want) {
 			Expect(false).To(BeTrue(), fmt.Sprint(e))
@@ -95,9 +94,15 @@ var _ = Describe("RunPropagatesLoadAndTableErrors", func() {
 
 var _ = Describe("InitTablesUserKey", func() {
 	It("uses String for the users table hash key", func() {
-		client := &fakeClient{}
+		ctrl := gomock.NewController(GinkgoT())
+		client := NewMocktableCreator(ctrl)
+		var input *dynamodb.CreateTableInput
+		client.EXPECT().CreateTable(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, got *dynamodb.CreateTableInput, _ ...func(*dynamodb.Options)) (*dynamodb.CreateTableOutput, error) {
+			input = got
+			return &dynamodb.CreateTableOutput{}, nil
+		})
 		Expect(initTables(context.Background(), client, func(string, ...any) (int, error) { return 0, nil })).To(Succeed())
-		Expect(client.inputs[0].AttributeDefinitions[0].AttributeType).To(Equal(types.ScalarAttributeTypeS))
+		Expect(input.AttributeDefinitions[0].AttributeType).To(Equal(types.ScalarAttributeTypeS))
 	})
 })
 

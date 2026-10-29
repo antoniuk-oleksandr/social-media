@@ -12,7 +12,6 @@ import (
 	authdomain "github.com/antoniuk-oleksandr/social-media/internal/auth"
 	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/token"
-	"github.com/antoniuk-oleksandr/social-media/internal/user"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -155,19 +154,13 @@ var _ = Describe("refresh persistence", func() {
 func refreshIntegrationService(store authdomain.RefreshStore, now time.Time) *authdomain.Service {
 	return &authdomain.Service{
 		RefreshStore: store,
-		Users:        refreshIntegrationUserLookup{},
-		Clock:        fixedClock{at: now},
+		Users:        newIntegrationUserLookup(),
+		Clock:        fixedIntegrationClock(now),
 		Access:       platformjwt.Access{Keys: platformjwt.StaticKey{KID: "refresh-test-key", Secret: []byte("refresh-test-secret")}, KID: "refresh-test-key", Issuer: "social-media", Audience: "social-media-api", TTL: 15 * time.Minute, ID: func() string { return "0192f8a0-7b00-7000-8000-000000000003" }},
 		Opaque:       token.Opaque{},
 		AccessTTL:    15 * time.Minute,
 		RefreshTTL:   7 * 24 * time.Hour,
 	}
-}
-
-type refreshIntegrationUserLookup struct{}
-
-func (refreshIntegrationUserLookup) FindByID(_ context.Context, id string) (user.User, error) {
-	return user.User{ID: id, Role: user.RoleUser, Status: user.StatusActive}, nil
 }
 
 const testUserID = "0192f8a0-7b00-7000-8000-000000000001"

@@ -18,7 +18,7 @@ var _ = Describe("GET advertisement persistence", func() {
 		adID := "0192f8a0-7b00-7000-8000-000000000811"
 		adminID := "0192f8a0-7b00-7000-8000-000000000812"
 		repository := &addb.Repository{Client: userIntegrationSuite.Client, TableName: adsTable}
-		service := adfeature.NewService(repository, integrationIDGenerator{id: adID}, integrationClock{value: now})
+		service := adfeature.NewService(repository, newIntegrationID(adID), fixedIntegrationClock(now))
 
 		_, err := service.Create(context.Background(), adfeature.CreateCommand{
 			AdminID: adminID, Advertiser: "Example Company", Content: "Try our product", TargetURL: "https://example.com",

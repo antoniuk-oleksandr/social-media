@@ -33,9 +33,9 @@ var _ = Describe("GET /api/v1/ads/{adId}", func() {
 	}
 
 	It("returns the documented ad response and logs administrator metadata", func() {
-		repository := &fakeRepository{value: advertisement}
-		logger := &recordingLogger{}
-		router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{}), logger), fakeAuth{id: adminID})
+		repository := newRepositoryFixture(advertisement, nil, ListResult{})
+		logger := newAdLogger(nil)
+		router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(time.Time{})), logger), newAdminAuth(adminID, nil))
 		req := request(adID)
 		req.Header.Set("X-Request-ID", "req-ad-get")
 		response := httptest.NewRecorder()
@@ -64,9 +64,9 @@ var _ = Describe("GET /api/v1/ads/{adId}", func() {
 			{name: "dependency unavailable", err: ErrDependencyUnavailable, code: "SERVICE_UNAVAILABLE", status: http.StatusServiceUnavailable, message: "Service temporarily unavailable"},
 			{name: "unexpected failure", err: errors.New("DynamoDB credentials leaked"), code: "INTERNAL_ERROR", status: http.StatusInternalServerError, message: "Internal server error"},
 		} {
-			repository := &fakeRepository{err: test.err}
-			logger := &recordingLogger{}
-			router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{}), logger), fakeAuth{id: adminID})
+			repository := newRepositoryFixture(Advertisement{}, test.err, ListResult{})
+			logger := newAdLogger(nil)
+			router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(time.Time{})), logger), newAdminAuth(adminID, nil))
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request(adID))
 
@@ -89,9 +89,9 @@ var _ = Describe("GET /api/v1/ads/{adId}", func() {
 			"0192F8A0-7B00-7000-8000-000000000001",
 			"0192f8a0-7b00-7000-c000-000000000001",
 		} {
-			repository := &fakeRepository{value: advertisement}
-			logger := &recordingLogger{}
-			router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{}), logger), fakeAuth{id: adminID})
+			repository := newRepositoryFixture(advertisement, nil, ListResult{})
+			logger := newAdLogger(nil)
+			router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(time.Time{})), logger), newAdminAuth(adminID, nil))
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request(id))
 
@@ -115,9 +115,9 @@ var _ = Describe("GET /api/v1/ads/{adId}", func() {
 			{name: "invalid token", authorization: "Bearer invalid", authError: errors.New("invalid access token"), status: http.StatusUnauthorized, code: "INVALID_TOKEN"},
 			{name: "non-admin", authorization: "Bearer user", authError: auth.ErrForbidden, status: http.StatusForbidden, code: "FORBIDDEN"},
 		} {
-			repository := &fakeRepository{value: advertisement}
-			logger := &recordingLogger{}
-			router := NewRouter(NewHandler(NewService(repository, fakeIDs{}, fakeClock{}), logger), fakeAuth{err: test.authError})
+			repository := newRepositoryFixture(advertisement, nil, ListResult{})
+			logger := newAdLogger(nil)
+			router := NewRouter(NewHandler(NewService(repository, newAdIDs("", nil), newAdClock(time.Time{})), logger), newAdminAuth("", test.authError))
 			req := request(adID)
 			req.Header.Set("Authorization", test.authorization)
 			req.Header.Set("X-Request-ID", "req-ad-auth")

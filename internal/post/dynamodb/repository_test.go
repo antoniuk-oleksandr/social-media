@@ -10,9 +10,11 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/post"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"go.uber.org/mock/gomock"
 )
 
-type fakePutAPI struct {
+type putAPIFixture struct {
+	*MockAPI
 	input       *dynamodb.PutItemInput
 	getInput    *dynamodb.GetItemInput
 	deleteInput *dynamodb.DeleteItemInput
@@ -20,26 +22,28 @@ type fakePutAPI struct {
 	err         error
 }
 
-func (f *fakePutAPI) PutItem(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
-	f.input = input
-	return &dynamodb.PutItemOutput{}, f.err
-}
-
-func (f *fakePutAPI) GetItem(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-	f.getInput = input
-	if f.get != nil {
-		return f.get, f.err
-	}
-	return &dynamodb.GetItemOutput{}, f.err
-}
-
-func (f *fakePutAPI) DeleteItem(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
-	f.deleteInput = input
-	return &dynamodb.DeleteItemOutput{}, f.err
+func newPutAPIFixture(t *testing.T, get *dynamodb.GetItemOutput, err error) *putAPIFixture {
+	f := &putAPIFixture{MockAPI: NewMockAPI(gomock.NewController(t)), get: get, err: err}
+	f.EXPECT().PutItem(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, input *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+		f.input = input
+		return &dynamodb.PutItemOutput{}, f.err
+	})
+	f.EXPECT().GetItem(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, input *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+		f.getInput = input
+		if f.get != nil {
+			return f.get, f.err
+		}
+		return &dynamodb.GetItemOutput{}, f.err
+	})
+	f.EXPECT().DeleteItem(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, input *dynamodb.DeleteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+		f.deleteInput = input
+		return &dynamodb.DeleteItemOutput{}, f.err
+	})
+	return f
 }
 
 func TestRepositoryCreateMapsPostAndUsesConditionalPut(t *testing.T) {
-	api := &fakePutAPI{}
+	api := newPutAPIFixture(t, nil, nil)
 	repository := &Repository{Client: api, TableName: "posts-test"}
 	value := post.Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab", AuthorID: "0192c5f4-7b2a-7abc-8def-1234567890ab", Content: "hello", CreatedAtEpoch: 1792326900123}
 	if err := repository.Create(context.Background(), value); err != nil {
@@ -60,7 +64,7 @@ func TestRepositoryCreateMapsPostAndUsesConditionalPut(t *testing.T) {
 }
 
 func TestRepositoryCreateAndGetPreserveMillisecondTimestamp(t *testing.T) {
-	api := &fakePutAPI{}
+	api := newPutAPIFixture(t, nil, nil)
 	repository := &Repository{Client: api, TableName: "posts-test"}
 	createdAt := time.Date(2026, 10, 18, 12, 35, 0, 123000000, time.UTC)
 	value := post.Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab", AuthorID: "0192c5f4-7b2a-7abc-8def-1234567890ab", Content: "hello", CreatedAt: createdAt, CreatedAtEpoch: createdAt.UnixMilli()}
@@ -84,7 +88,7 @@ func TestRepositoryCreateAndGetPreserveMillisecondTimestamp(t *testing.T) {
 }
 
 func TestRepositoryCreateTranslatesInfrastructureFailure(t *testing.T) {
-	api := &fakePutAPI{err: errors.New("DynamoDB unavailable")}
+	api := newPutAPIFixture(t, nil, errors.New("DynamoDB unavailable"))
 	repository := &Repository{Client: api, TableName: "posts-test"}
 	err := repository.Create(context.Background(), post.Post{ID: "0192c5f4-7b2a-7abd-8def-1234567890ab"})
 	if !errors.Is(err, post.ErrDependencyUnavailable) {
@@ -113,12 +117,12 @@ func assertStringAttribute(t *testing.T, item map[string]types.AttributeValue, k
 func TestRepositoryGetByIDMapsActiveRecord(t *testing.T) {
 	id := "0192c5f4-7b2a-7abd-8def-1234567890ab"
 	authorID := "0192c5f4-7b2a-7abc-8def-1234567890ab"
-	api := &fakePutAPI{get: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
+	api := newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
 		"postId": &types.AttributeValueMemberS{Value: id}, "entityType": &types.AttributeValueMemberS{Value: "post"},
 		"authorId": &types.AttributeValueMemberS{Value: authorID}, "content": &types.AttributeValueMemberS{Value: "Hello"},
 		"status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: "2026-10-18T12:35:00Z"},
 		"createdAtEpoch": &types.AttributeValueMemberN{Value: "1792326900000"}, "feedPartition": &types.AttributeValueMemberS{Value: "GLOBAL"},
-	}}}
+	}}, nil)
 	repository := &Repository{Client: api, TableName: "posts-test"}
 	value, err := repository.GetByID(context.Background(), id)
 	if err != nil {
@@ -141,7 +145,7 @@ func TestRepositoryGetByIDMapsMissingAndInactiveToNotFound(t *testing.T) {
 		nil,
 		{"postId": &types.AttributeValueMemberS{Value: id}, "authorId": &types.AttributeValueMemberS{Value: "0192c5f4-7b2a-7abc-8def-1234567890ab"}, "content": &types.AttributeValueMemberS{Value: "deleted"}, "status": &types.AttributeValueMemberS{Value: "deleted"}, "createdAt": &types.AttributeValueMemberS{Value: "2026-10-18T12:35:00Z"}},
 	} {
-		api := &fakePutAPI{get: &dynamodb.GetItemOutput{Item: item}}
+		api := newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: item}, nil)
 		_, err := (&Repository{Client: api, TableName: "posts-test"}).GetByID(context.Background(), id)
 		if !errors.Is(err, post.ErrNotFound) {
 			t.Errorf("item %#v: error = %v, want ErrNotFound", item, err)
@@ -151,15 +155,15 @@ func TestRepositoryGetByIDMapsMissingAndInactiveToNotFound(t *testing.T) {
 
 func TestRepositoryGetByIDTranslatesInfrastructureAndMalformedRecords(t *testing.T) {
 	id := "0192c5f4-7b2a-7abd-8def-1234567890ab"
-	api := &fakePutAPI{err: errors.New("DynamoDB unavailable")}
+	api := newPutAPIFixture(t, nil, errors.New("DynamoDB unavailable"))
 	_, err := (&Repository{Client: api, TableName: "posts-test"}).GetByID(context.Background(), id)
 	if !errors.Is(err, post.ErrDependencyUnavailable) {
 		t.Fatalf("infrastructure error = %v, want dependency error", err)
 	}
-	api = &fakePutAPI{get: &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
+	api = newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: map[string]types.AttributeValue{
 		"postId": &types.AttributeValueMemberS{Value: id}, "authorId": &types.AttributeValueMemberS{Value: "not-a-uuid"},
 		"content": &types.AttributeValueMemberS{Value: "bad"}, "status": &types.AttributeValueMemberS{Value: "active"}, "createdAt": &types.AttributeValueMemberS{Value: "bad-time"},
-	}}}
+	}}, nil)
 	_, err = (&Repository{Client: api, TableName: "posts-test"}).GetByID(context.Background(), id)
 	if !errors.Is(err, post.ErrDependencyUnavailable) {
 		t.Fatalf("malformed record error = %v, want dependency error", err)
@@ -200,7 +204,7 @@ func TestRepositoryGetByIDRejectsMalformedPersistenceRecords(t *testing.T) {
 				item[key] = value
 			}
 			tc.mutate(item)
-			api := &fakePutAPI{get: &dynamodb.GetItemOutput{Item: item}}
+			api := newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: item}, nil)
 			_, err := (&Repository{Client: api, TableName: "posts-test"}).GetByID(context.Background(), id)
 			if !errors.Is(err, post.ErrDependencyUnavailable) {
 				t.Fatalf("error = %v, want dependency error", err)
@@ -241,7 +245,7 @@ func TestRepositoryGetByIDRejectsNonCanonicalCreatedAtEpoch(t *testing.T) {
 				item[key] = value
 			}
 			item["createdAtEpoch"] = &types.AttributeValueMemberN{Value: tc.number}
-			_, err := (&Repository{Client: &fakePutAPI{get: &dynamodb.GetItemOutput{Item: item}}, TableName: "posts-test"}).GetByID(context.Background(), id)
+			_, err := (&Repository{Client: newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: item}, nil), TableName: "posts-test"}).GetByID(context.Background(), id)
 			if err != post.ErrDependencyUnavailable {
 				t.Fatalf("error = %v, want exactly ErrDependencyUnavailable", err)
 			}
@@ -312,7 +316,7 @@ func TestRepositoryGetByIDTranslatesUntrustedPersistedPostFields(t *testing.T) {
 				item[key] = value
 			}
 			tc.mutate(item)
-			_, err := (&Repository{Client: &fakePutAPI{get: &dynamodb.GetItemOutput{Item: item}}, TableName: "posts-test"}).GetByID(context.Background(), id)
+			_, err := (&Repository{Client: newPutAPIFixture(t, &dynamodb.GetItemOutput{Item: item}, nil), TableName: "posts-test"}).GetByID(context.Background(), id)
 			if err != post.ErrDependencyUnavailable {
 				t.Fatalf("error = %v, want exactly ErrDependencyUnavailable", err)
 			}
@@ -324,7 +328,7 @@ func TestRepositoryGetByIDTranslatesUntrustedPersistedPostFields(t *testing.T) {
 }
 
 func TestRepositoryDeleteUsesOwnerAndActiveCondition(t *testing.T) {
-	api := &fakePutAPI{}
+	api := newPutAPIFixture(t, nil, nil)
 	repository := &Repository{Client: api, TableName: "posts-test"}
 	id := "0192c5f4-7b2a-7abd-8def-1234567890ab"
 	ownerID := "0192c5f4-7b2a-7abc-8def-1234567890ab"
@@ -358,7 +362,7 @@ func TestRepositoryDeleteTranslatesConditionalAndInfrastructureFailures(t *testi
 		{name: "dependency unavailable", err: errors.New("DynamoDB unavailable"), want: post.ErrDependencyUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			api := &fakePutAPI{err: tc.err}
+			api := newPutAPIFixture(t, nil, tc.err)
 			err := (&Repository{Client: api, TableName: "posts-test"}).Delete(context.Background(), id, ownerID)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("error = %v, want %v", err, tc.want)

@@ -12,67 +12,65 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 )
 
-type logoutHandlerService struct {
-	err   error
+type logoutServiceFixture struct {
+	*MockServicePort
 	token string
 }
 
-type logoutStore struct {
+type logoutStoreFixture struct {
+	*MockLogoutStore
 	mu          sync.Mutex
 	hash        string
 	calls       int
 	familyState string
 }
 
-func (s *logoutStore) RevokeSessionFamily(_ context.Context, hash string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.hash = hash
-	s.calls++
-	if s.familyState == "revoked" {
-		return auth.ErrInvalidRefreshToken
-	}
-	s.familyState = "revoked"
-	return nil
-}
-
-func (s *logoutHandlerService) Register(context.Context, auth.RegisterCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (s *logoutHandlerService) Login(context.Context, auth.LoginCommand) (auth.RegisterResult, error) {
-	return auth.RegisterResult{}, nil
-}
-func (s *logoutHandlerService) Logout(_ context.Context, token string) error {
-	s.token = token
-	return s.err
-}
-
-type logoutRecordingLogger struct {
+type logoutLoggerFixture struct {
+	*MockLogger
 	fields []logging.Field
 }
 
-func (l *logoutRecordingLogger) Info(_ string, fields ...logging.Field) error {
-	l.fields = fields
-	return nil
+func newLogoutStore() *logoutStoreFixture {
+	s := &logoutStoreFixture{MockLogoutStore: NewMockLogoutStore(gomock.NewController(GinkgoT()))}
+	s.EXPECT().RevokeSessionFamily(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, hash string) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.hash = hash
+		s.calls++
+		if s.familyState == "revoked" {
+			return auth.ErrInvalidRefreshToken
+		}
+		s.familyState = "revoked"
+		return nil
+	})
+	return s
 }
-func (l *logoutRecordingLogger) Error(_ string, fields ...logging.Field) error {
-	l.fields = fields
-	return nil
+func newLogoutService(err error) *logoutServiceFixture {
+	s := &logoutServiceFixture{MockServicePort: NewMockServicePort(gomock.NewController(GinkgoT()))}
+	s.EXPECT().Logout(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ context.Context, token string) error { s.token = token; return err })
+	return s
 }
-func (l *logoutRecordingLogger) Sync() error { return nil }
+func newLogoutLogger() *logoutLoggerFixture {
+	l := &logoutLoggerFixture{MockLogger: NewMockLogger(gomock.NewController(GinkgoT()))}
+	l.EXPECT().Info(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ string, fields ...logging.Field) error { l.fields = fields; return nil })
+	l.EXPECT().Error(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(_ string, fields ...logging.Field) error { l.fields = fields; return nil })
+	l.EXPECT().Sync().AnyTimes().Return(nil)
+	return l
+}
 
 var _ = Describe("LogoutService", func() {
 	It("hashes the refresh token before revoking its session family", func() {
-		store := &logoutStore{}
+		store := newLogoutStore()
 		svc := &auth.Service{LogoutStore: store}
 		Expect(svc.Logout(context.Background(), "opaque-refresh-token")).To(Succeed())
 		Expect(store.hash).To(Equal(auth.HashRefreshToken("opaque-refresh-token")))
 	})
 
 	It("rejects an empty refresh token without touching the repository", func() {
-		store := &logoutStore{}
+		store := newLogoutStore()
 		svc := &auth.Service{LogoutStore: store}
 		err := svc.Logout(context.Background(), " ")
 		Expect(errors.Is(err, auth.ErrValidation)).To(BeTrue())
@@ -80,7 +78,7 @@ var _ = Describe("LogoutService", func() {
 	})
 
 	It("propagates the invalid-token transition when a refresh token is reused", func() {
-		store := &logoutStore{}
+		store := newLogoutStore()
 		svc := &auth.Service{LogoutStore: store}
 
 		Expect(svc.Logout(context.Background(), "opaque-refresh-token")).To(Succeed())
@@ -91,7 +89,7 @@ var _ = Describe("LogoutService", func() {
 	})
 
 	It("allows exactly one concurrent logout and records the revoked family state", func() {
-		store := &logoutStore{}
+		store := newLogoutStore()
 		svc := &auth.Service{LogoutStore: store}
 		start := make(chan struct{})
 		results := make(chan error, 2)
@@ -128,7 +126,7 @@ var _ = Describe("LogoutService", func() {
 
 var _ = Describe("LogoutHandler", func() {
 	It("returns 204 and does not expose the raw token in responses", func() {
-		service := &logoutHandlerService{}
+		service := newLogoutService(nil)
 		h := auth.Handler{Service: service}
 		rawToken := "opaque-refresh-token"
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"`+rawToken+`"}`))
@@ -142,7 +140,7 @@ var _ = Describe("LogoutHandler", func() {
 	})
 
 	It("maps an invalid refresh token to the documented error", func() {
-		h := auth.Handler{Service: &logoutHandlerService{err: auth.ErrInvalidRefreshToken}}
+		h := auth.Handler{Service: newLogoutService(auth.ErrInvalidRefreshToken)}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"token"}`))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -153,7 +151,7 @@ var _ = Describe("LogoutHandler", func() {
 
 	It("enforces the strict request contract", func() {
 		for _, body := range []string{`{"refreshToken":"token","extra":true}`, `{"refreshToken":"token"} {}`, `{`} {
-			service := &logoutHandlerService{}
+			service := newLogoutService(nil)
 			h := auth.Handler{Service: service}
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(body))
 			r.Header.Set("Content-Type", "application/json")
@@ -165,7 +163,7 @@ var _ = Describe("LogoutHandler", func() {
 	})
 
 	It("rejects a non-JSON content type before invoking the service", func() {
-		service := &logoutHandlerService{}
+		service := newLogoutService(nil)
 		h := auth.Handler{Service: service}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"opaque-refresh-token"}`))
 		w := httptest.NewRecorder()
@@ -185,7 +183,7 @@ var _ = Describe("LogoutHandler", func() {
 			{auth.ErrDependencyUnavailable, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE"},
 			{errors.New("internal failure"), http.StatusInternalServerError, "INTERNAL_ERROR"},
 		} {
-			h := auth.Handler{Service: &logoutHandlerService{err: tc.err}}
+			h := auth.Handler{Service: newLogoutService(tc.err)}
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"token"}`))
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("X-Request-ID", "req-logout-error")
@@ -208,7 +206,7 @@ var _ = Describe("LogoutHandler", func() {
 			{`{"refreshToken":"token"}`, "text/json", http.StatusUnsupportedMediaType},
 		}
 		for _, tc := range cases {
-			service := &logoutHandlerService{}
+			service := newLogoutService(nil)
 			h := auth.Handler{Service: service}
 			r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(tc.body))
 			r.Header.Set("Content-Type", tc.contentType)
@@ -221,8 +219,8 @@ var _ = Describe("LogoutHandler", func() {
 
 	It("keeps the raw refresh token out of structured logs", func() {
 		rawToken := "opaque-secret-refresh-token"
-		logger := &logoutRecordingLogger{}
-		h := auth.Handler{Service: &logoutHandlerService{err: errors.New("backend failed")}, Logger: logger}
+		logger := newLogoutLogger()
+		h := auth.Handler{Service: newLogoutService(errors.New("backend failed")), Logger: logger}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"`+rawToken+`"}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-Request-ID", "req-safe-logout")
@@ -239,7 +237,7 @@ var _ = Describe("LogoutHandler", func() {
 
 var _ = Describe("LogoutRouter", func() {
 	It("registers the POST logout route", func() {
-		router := auth.Router(auth.Handler{Service: &logoutHandlerService{}})
+		router := auth.Router(auth.Handler{Service: newLogoutService(nil)})
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader(`{"refreshToken":"token"}`))
 		request.Header.Set("Content-Type", "application/json")
 		response := httptest.NewRecorder()

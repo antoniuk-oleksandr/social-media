@@ -13,64 +13,59 @@ import (
 
 	"github.com/antoniuk-oleksandr/social-media/internal/auth"
 	"github.com/antoniuk-oleksandr/social-media/internal/user"
+	"go.uber.org/mock/gomock"
 )
 
-type failingStore struct{ err error }
-
-func (s failingStore) Register(context.Context, auth.Registration) error { return s.err }
-
-type failingHasher struct{}
-
-func (failingHasher) Hash(string) (string, error) { return "", errors.New("hash failure") }
-
-type failingIDs struct {
-	calls     int
-	failFirst bool
-}
-
-func (f *failingIDs) New() (string, error) {
-	f.calls++
-	if (f.failFirst && f.calls == 1) || (!f.failFirst && f.calls == 2) {
-		return "", errors.New("id failure")
+func failureService(t gomock.TestReporter, kind string, storeErr error) auth.Service {
+	ctrl := gomock.NewController(t)
+	store := NewMockRegistrationStore(ctrl)
+	store.EXPECT().Register(gomock.Any(), gomock.Any()).AnyTimes().Return(storeErr)
+	hasher := NewMockPasswordHasher(ctrl)
+	ids := NewMockIDGenerator(ctrl)
+	clock := NewMockClock(ctrl)
+	clock.EXPECT().Now().AnyTimes().Return(time.Unix(100, 0))
+	access := NewMockAccessTokenIssuer(ctrl)
+	opaque := NewMockOpaqueTokenGenerator(ctrl)
+	s := auth.Service{Store: store, Hasher: hasher, IDs: ids, Clock: clock, Access: access, Opaque: opaque, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+	switch kind {
+	case "hash":
+		hasher.EXPECT().Hash(gomock.Any()).AnyTimes().Return("", errors.New("hash failure"))
+	default:
+		hasher.EXPECT().Hash(gomock.Any()).AnyTimes().Return("hash", nil)
 	}
-	return "id", nil
+	if kind == "id" {
+		ids.EXPECT().New().AnyTimes().Return("", errors.New("id failure"))
+	} else {
+		ids.EXPECT().New().AnyTimes().Return("0192f8a0-7b00-7000-8000-000000000001", nil)
+	}
+	if kind == "access" {
+		access.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("", errors.New("token failure"))
+	} else {
+		access.EXPECT().Issue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return("access", nil)
+	}
+	if kind == "opaque" {
+		opaque.EXPECT().Generate().AnyTimes().Return("", "", errors.New("random failure"))
+	} else {
+		opaque.EXPECT().Generate().AnyTimes().Return("refresh", "hash", nil)
+	}
+	return s
 }
 
-type failingAccess struct{}
-
-func (failingAccess) Issue(context.Context, user.User, time.Time) (string, error) {
-	return "", errors.New("token failure")
-}
-
-type failingOpaque struct{}
-
-func (failingOpaque) Generate() (string, string, error) { return "", "", errors.New("random failure") }
-
-func baseService(store auth.RegistrationStore) auth.Service {
-	return auth.Service{Store: store, Hasher: hasher{}, IDs: &ids{}, Clock: clk{}, Access: access{}, Opaque: opaque{}, AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour}
+func handlerServiceWithRegistrationError(t gomock.TestReporter, err error) *auth.Service {
+	returnService := failureService(t, "", err)
+	return &returnService
 }
 
 var _ = Describe("RegisterServiceDependencyFailures", func() {
 	It("runs the test", func() {
 		cases := []struct {
-			name    string
-			service auth.Service
-		}{
-			{"hash", baseService(&store{})},
-			{"id", baseService(&store{})},
-			{"id-first", baseService(&store{})},
-			{"access", baseService(&store{})},
-			{"opaque", baseService(&store{})},
-			{"store", baseService(failingStore{err: errors.New("store failure")})},
-		}
-		cases[0].service.Hasher = failingHasher{}
-		cases[1].service.IDs = &failingIDs{}
-		cases[2].service.IDs = &failingIDs{failFirst: true}
-		cases[3].service.Access = failingAccess{}
-		cases[4].service.Opaque = failingOpaque{}
+			name, kind string
+			err        error
+		}{{"hash", "hash", nil}, {"id", "id", nil}, {"access", "access", nil}, {"opaque", "opaque", nil}, {"store", "", errors.New("store failure")}}
 		for _, tc := range cases {
 			{
-				if _, err := tc.service.Register(context.Background(), valid()); err == nil {
+				service := failureService(GinkgoT(), tc.kind, tc.err)
+				if _, err := service.Register(context.Background(), validRegistration()); err == nil {
 					Expect(false).To(BeTrue(), fmt.Sprint("expected failure"))
 				}
 			}
@@ -93,7 +88,7 @@ var _ = Describe("RegisterHandlerErrorMappings", func() {
 			{"internal", errors.New("internal"), 500, "INTERNAL_ERROR"},
 		} {
 			{
-				h := auth.Handler{Service: &auth.Service{Store: failingStore{err: tc.err}, Hasher: hasher{}, IDs: &ids{}, Clock: clk{}, Access: access{}, Opaque: opaque{}}}
+				h := auth.Handler{Service: handlerServiceWithRegistrationError(GinkgoT(), tc.err)}
 				r := httptest.NewRequest("POST", "/", strings.NewReader(`{"username":"alice","email":"a@example.com","password":"123456789012","displayName":"Alice"}`))
 				r.Header.Set("Content-Type", "application/json")
 				w := httptest.NewRecorder()
@@ -143,7 +138,7 @@ var _ = Describe("RouterRegistersEndpoint", func() {
 
 var _ = Describe("AdditionalServiceAndLoginCoverage", func() {
 	It("rejects oversized login payloads before invoking the service", func() {
-		service := &countingService{}
+		service, calls := newCountingService(gomock.NewController(GinkgoT()), nil)
 		h := auth.Handler{Service: service}
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"login":"alice","password":"`+strings.Repeat("x", 64<<10)+`"}`))
 		r.Header.Set("Content-Type", "application/json")
@@ -153,7 +148,7 @@ var _ = Describe("AdditionalServiceAndLoginCoverage", func() {
 
 		Expect(w.Code).To(Equal(http.StatusRequestEntityTooLarge))
 		Expect(errorBody(w).Error.Code).To(Equal("PAYLOAD_TOO_LARGE"))
-		Expect(service.calls).To(Equal(0))
+		Expect(*calls).To(Equal(0))
 	})
 
 	It("rejects empty and unwired refresh requests without touching dependencies", func() {
@@ -167,13 +162,13 @@ var _ = Describe("AdditionalServiceAndLoginCoverage", func() {
 	})
 
 	It("maps a deleted refresh-session user to an invalid token", func() {
-		store := &refreshStoreFake{session: auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000004", Status: "active"}}
+		store := newRefreshStore(auth.RefreshSession{UserID: "0192f8a0-7b00-7000-8000-000000000004", Status: "active"}, nil, nil, nil)
 		service := &auth.Service{
 			RefreshStore: store,
-			Users:        refreshUserLookup{err: user.ErrNotFound},
-			Clock:        refreshClock{now: time.Unix(100, 0)},
-			Access:       &refreshAccess{},
-			Opaque:       &refreshOpaque{},
+			Users:        newRefreshUser(user.User{}, user.ErrNotFound),
+			Clock:        newRefreshClock(time.Unix(100, 0)),
+			Access:       newRefreshAccess(),
+			Opaque:       newRefreshOpaque(),
 		}
 
 		_, err := service.Refresh(context.Background(), "deleted-user-token")
