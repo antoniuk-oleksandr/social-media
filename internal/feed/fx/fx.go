@@ -9,6 +9,7 @@ import (
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"net/http"
@@ -31,6 +32,10 @@ func NewHandler(s feedfeature.Service, logger logging.Logger) *feedfeature.Handl
 }
 func NewRouter(h *feedfeature.Handler, a platformjwt.Access) http.Handler {
 	return feedfeature.NewRouter(h, a)
+}
+
+func NewObservedRouter(h *feedfeature.Handler, a platformjwt.Access, middleware platformobservability.Middleware) http.Handler {
+	return middleware(NewRouter(h, a))
 }
 
 var _ adfeature.Repository

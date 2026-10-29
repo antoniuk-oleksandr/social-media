@@ -7,6 +7,7 @@ import (
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/aws/aws-lambda-go/lambda"
 	"go.uber.org/fx"
 	"log"
@@ -15,7 +16,7 @@ import (
 
 func main() {
 	var handler http.Handler
-	app := fx.New(fx.Provide(func() context.Context { return context.Background() }, platformfx.LoadAWSConfig, platformfx.NewConfiguredAdsConfig, platformconfig.LoadPostsConfig, platformconfig.LoadUsersConfig, platformfx.NewDynamoDBClient, platformfx.NewClock, platformlogging.New, platformfx.NewConfiguredAccessTokenIssuer, feedfx.NewPosts, feedfx.NewAds, feedfx.NewAuthors, feedfx.NewService, feedfx.NewHandler, feedfx.NewRouter), fx.Populate(&handler))
+	app := fx.New(fx.Provide(func() context.Context { return context.Background() }, platformfx.LoadAWSConfig, platformfx.NewConfiguredAdsConfig, platformconfig.LoadPostsConfig, platformconfig.LoadUsersConfig, platformfx.NewDynamoDBClient, platformfx.NewClock, platformlogging.New, platformobservability.New, platformfx.NewConfiguredAccessTokenIssuer, feedfx.NewPosts, feedfx.NewAds, feedfx.NewAuthors, feedfx.NewService, feedfx.NewHandler, feedfx.NewObservedRouter), fx.Populate(&handler))
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
 		log.Fatal(err)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 )
 
 type Handler struct {
@@ -197,7 +198,8 @@ func (h *Handler) loggerError(message string, fields ...logging.Field) error {
 type principalKey struct{}
 
 func WithAuthenticatedUserID(r *http.Request, id string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), principalKey{}, id))
+	ctx := context.WithValue(r.Context(), principalKey{}, id)
+	return r.WithContext(platformobservability.WithUserID(ctx, id))
 }
 func requestID(r *http.Request) string {
 	if v := r.Header.Get("X-Request-ID"); v != "" {

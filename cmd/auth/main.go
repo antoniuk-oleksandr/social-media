@@ -10,6 +10,7 @@ import (
 	platformconfig "github.com/antoniuk-oleksandr/social-media/internal/platform/config"
 	platformfx "github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	platformlogging "github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/aws/aws-lambda-go/lambda"
 	"go.uber.org/fx"
 )
@@ -27,6 +28,7 @@ func main() {
 			platformfx.NewConfiguredAccessTokenIssuer,
 			platformfx.NewOpaqueTokenGenerator,
 			platformlogging.New,
+			platformobservability.New,
 			authfx.NewRegistrationStore,
 			authfx.NewLoginStore,
 			authfx.NewLogoutStore,
@@ -34,7 +36,7 @@ func main() {
 			authfx.NewUserLookup,
 			authfx.NewServicePort,
 			authfx.NewHandler,
-			authfx.NewRouter,
+			authfx.NewObservedRouter,
 		),
 		fx.Populate(&handler),
 	)

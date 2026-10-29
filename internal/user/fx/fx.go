@@ -8,6 +8,7 @@ import (
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/fx"
 	platformjwt "github.com/antoniuk-oleksandr/social-media/internal/platform/jwt"
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	userfeature "github.com/antoniuk-oleksandr/social-media/internal/user"
 	userdb "github.com/antoniuk-oleksandr/social-media/internal/user/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -31,4 +32,8 @@ func NewHandler(service userfeature.Service, logger logging.Logger) *userfeature
 
 func NewRouter(handler *userfeature.Handler, access platformjwt.Access) http.Handler {
 	return userfeature.NewRouter(handler, access)
+}
+
+func NewObservedRouter(handler *userfeature.Handler, access platformjwt.Access, middleware platformobservability.Middleware) http.Handler {
+	return middleware(NewRouter(handler, access))
 }

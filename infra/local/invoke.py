@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -29,7 +30,7 @@ def remove_created_containers(before: set[str]) -> None:
         return
 
     result = subprocess.run(
-        ["docker", "rm", "--force", *sorted(created)],
+        ["docker", "rm", *sorted(created)],
         capture_output=True,
         text=True,
         check=False,
@@ -39,6 +40,35 @@ def remove_created_containers(before: set[str]) -> None:
             f"warning: could not remove local Lambda containers: {result.stderr.strip()}",
             file=sys.stderr,
         )
+
+
+def wait_for_log_collection() -> None:
+    try:
+        seconds = float(os.environ.get("LOCAL_LOG_COLLECTION_GRACE_SECONDS", "15"))
+    except ValueError:
+        seconds = 15
+    if seconds > 0:
+        time.sleep(seconds)
+
+
+def save_application_logs(output: str, function_name: str) -> None:
+    log_lines = []
+    service_name = function_name.removesuffix("Function").lower()
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('{"level":') and '"msg":' in stripped:
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            record["service_name"] = service_name
+            log_lines.append(json.dumps(record, separators=(",", ":")))
+    if not log_lines:
+        return
+    log_path = Path(os.environ.get("LOCAL_LOG_PATH", "/tmp/social-media-local-logs/sam-lambda.jsonl"))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as stream:
+        stream.write("\n".join(log_lines) + "\n")
 
 
 def load_dotenv(path: Path) -> dict[str, str]:
@@ -121,11 +151,17 @@ def main() -> int:
                 "social-media-local",
             ],
             check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+        print(result.stdout, end="")
+        save_application_logs(result.stdout, function_name)
         return result.returncode
     finally:
         event_path.unlink(missing_ok=True)
         runtime_env_path.unlink(missing_ok=True)
+        wait_for_log_collection()
         remove_created_containers(containers_before)
 
 

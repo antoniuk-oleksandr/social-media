@@ -21,3 +21,4 @@ resource "aws_ssm_parameter" "ads_cursor_signing_key" {
     ignore_changes = [value]
   }
 }
+

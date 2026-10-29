@@ -50,6 +50,19 @@ data "aws_iam_policy_document" "auth_lambda" {
     actions   = ["ssm:GetParameter"]
     resources = [aws_ssm_parameter.jwt_signing_key.arn]
   }
+
+  statement {
+    sid    = "WriteXRayTraces"
+    effect = "Allow"
+    actions = [
+      "xray:GetSamplingRules",
+      "xray:GetSamplingStatisticSummaries",
+      "xray:GetSamplingTargets",
+      "xray:PutTelemetryRecords",
+      "xray:PutTraceSegments",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "auth_lambda" {
@@ -93,6 +106,19 @@ data "aws_iam_policy_document" "users_lambda" {
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
     resources = [aws_ssm_parameter.jwt_signing_key.arn]
+  }
+
+  statement {
+    sid    = "WriteXRayTraces"
+    effect = "Allow"
+    actions = [
+      "xray:GetSamplingRules",
+      "xray:GetSamplingStatisticSummaries",
+      "xray:GetSamplingTargets",
+      "xray:PutTelemetryRecords",
+      "xray:PutTraceSegments",
+    ]
+    resources = ["*"]
   }
 }
 
@@ -265,6 +291,27 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
+    sid    = "ManageObservabilityMetrics"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:DeleteDashboards",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:GetDashboard",
+      "cloudwatch:ListDashboards",
+      "cloudwatch:ListTagsForResource",
+      "cloudwatch:PutDashboard",
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:TagResource",
+      "cloudwatch:UntagResource",
+      "logs:DeleteMetricFilter",
+      "logs:DescribeMetricFilters",
+      "logs:PutMetricFilter",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
     sid       = "DescribeSigningKeyParameters"
     effect    = "Allow"
     actions   = ["ssm:DescribeParameters"]
@@ -288,8 +335,18 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "iam:CreateRole",
       "iam:DeleteRole",
       "iam:DeleteRolePolicy",
+      "iam:CreateInstanceProfile",
+      "iam:DeleteInstanceProfile",
       "iam:GetRole",
       "iam:GetRolePolicy",
+      "iam:GetInstanceProfile",
+      "iam:AddRoleToInstanceProfile",
+      "iam:RemoveRoleFromInstanceProfile",
+      "iam:ListInstanceProfilesForRole",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:TagInstanceProfile",
+      "iam:UntagInstanceProfile",
       "iam:ListAttachedRolePolicies",
       "iam:ListRolePolicies",
       "iam:PutRolePolicy",
@@ -413,6 +470,19 @@ data "aws_iam_policy_document" "posts_lambda" {
     actions   = ["ssm:GetParameter"]
     resources = [aws_ssm_parameter.jwt_signing_key.arn]
   }
+
+  statement {
+    sid    = "WriteXRayTraces"
+    effect = "Allow"
+    actions = [
+      "xray:GetSamplingRules",
+      "xray:GetSamplingStatisticSummaries",
+      "xray:GetSamplingTargets",
+      "xray:PutTelemetryRecords",
+      "xray:PutTraceSegments",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "posts_lambda" {
@@ -475,6 +545,19 @@ data "aws_iam_policy_document" "ads_lambda" {
     effect    = "Allow"
     actions   = ["ssm:GetParameter"]
     resources = [aws_ssm_parameter.ads_cursor_signing_key.arn]
+  }
+
+  statement {
+    sid    = "WriteXRayTraces"
+    effect = "Allow"
+    actions = [
+      "xray:GetSamplingRules",
+      "xray:GetSamplingStatisticSummaries",
+      "xray:GetSamplingTargets",
+      "xray:PutTelemetryRecords",
+      "xray:PutTraceSegments",
+    ]
+    resources = ["*"]
   }
 }
 

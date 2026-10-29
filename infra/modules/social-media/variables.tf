@@ -31,3 +31,19 @@ variable "github_repository_id" { type = string }
 variable "github_environment" { type = string }
 variable "github_actions_role_name" { type = string }
 variable "terraform_state_bucket" { type = string }
+variable "observability_namespace" {
+  type    = string
+  default = "SocialMedia/Observability"
+}
+
+variable "alarm_actions" {
+  type    = list(string)
+  default = []
+}
+
+variable "adot_layer_arn" { type = string }
+variable "otel_trace_sample_rate" {
+  type    = number
+  default = 0.1
+}
+

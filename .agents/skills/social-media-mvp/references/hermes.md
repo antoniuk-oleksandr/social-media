@@ -10,6 +10,10 @@ From the repository root:
 just local-up
 ```
 
+This starts the complete local infrastructure, including SAM Local API Gateway
+at `http://127.0.0.1:8080`; for example,
+`curl http://127.0.0.1:8080/api/v1/feed`.
+
 DynamoDB endpoints:
 
 ```text
@@ -23,7 +27,7 @@ Local Lambda build artifacts are written under the repository root's `build/`
 directory. The auth bootstrap is generated at `build/auth/bootstrap`; no
 generated binaries are written under `infra/local`.
 
-Use SAM through the Justfile without starting an application HTTP server:
+Use the direct Lambda helpers for focused function tests:
 
 ```bash
 just auth-request POST /api/v1/auth/register \
@@ -54,6 +58,7 @@ local DynamoDB tables before each request.
 Local SAM invocations overlay values from the ignored `infra/local/.env` file.
 Create it from `infra/local/.env.example` when setting up a new checkout. Keep
 local signing keys in `.env`; never commit that file.
+
 
 ## Configure and run Hermes
 

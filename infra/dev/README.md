@@ -10,9 +10,12 @@ implemented development foundation through the reusable module in
 - the JWT signing key in SSM Parameter Store as `SecureString`;
 - a private, encrypted, versioned application media S3 bucket;
 - Lambda IAM permissions and CloudWatch logs.
+- CloudWatch dashboards, metric filters, alarms, and active X-Ray tracing.
 
-Posts, advertisements, feed, and their Lambda functions are intentionally not
-created until those application features exist.
+All currently implemented Lambda entry points, API Gateway routes, tables, and
+observability resources are managed together by this Terraform root.
+
+AWS logs are available in CloudWatch Logs and traces are available in X-Ray.
 
 ## Bootstrap artifact
 

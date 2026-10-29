@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/antoniuk-oleksandr/social-media/internal/platform/logging"
+	platformobservability "github.com/antoniuk-oleksandr/social-media/internal/platform/observability"
 	"github.com/antoniuk-oleksandr/social-media/internal/shared/httpjson"
 	"github.com/go-chi/chi/v5"
 )
@@ -69,7 +70,8 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 type principalKey struct{}
 
 func WithAuthenticatedUserID(r *http.Request, id string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), principalKey{}, id))
+	ctx := context.WithValue(r.Context(), principalKey{}, id)
+	return r.WithContext(platformobservability.WithUserID(ctx, id))
 }
 
 func authenticatedUserID(r *http.Request) (string, bool) {
