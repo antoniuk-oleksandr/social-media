@@ -16,7 +16,7 @@ docker compose -f infra/local/docker-compose.yaml up -d
 
 The service is named `dynamodb-local` on the Docker network `social-media-local` and listens on port `8000`. Host processes connect to the published local DynamoDB endpoint; containers attached to `social-media-local` connect to `http://dynamodb-local:8000`.
 
-The Compose network is dedicated to this local stack and the host port is bound to loopback. The ignored `infra/local/data/` bind mount persists local data between ordinary `down` and `up` operations. Remove that directory only when intentionally deleting local data.
+The Compose network is dedicated to this local stack and the host port is bound to loopback. The named Docker volume `social-media-dynamodb-local-data` persists local data between ordinary `down` and `up` operations. Use `docker compose -f infra/local/docker-compose.yaml down -v` only when intentionally deleting local data.
 
 This stack is not a substitute for integration-test isolation. Testcontainers owns the lifecycle of integration-test DynamoDB Local containers and tests must use isolated tables.
 - MVP uses separate logical tables for users, posts, advertisements, and optional feed state.

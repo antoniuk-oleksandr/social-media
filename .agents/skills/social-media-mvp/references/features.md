@@ -131,12 +131,12 @@ The mixed feed is the primary MVP feature and must be implemented and tested bef
 - Add report, block, and moderation workflows.
 - Introduce a proper identity provider and token-based authentication.
 - Add integration and contract tests for the public API.
-- Add observability with structured JSON logging using uber-go/zap.
+- Provide observability with structured JSON logging using uber-go/zap.
 - Send Lambda logs to Amazon CloudWatch Logs with a log group for each function.
 - Add request IDs, correlation IDs, Lambda request IDs, route names, user IDs, status codes, and durations to log fields.
 - Configure CloudWatch log retention, metric filters, dashboards, and alarms for errors, throttling, and latency.
-- Connect Grafana to CloudWatch for dashboards covering Lambda, API Gateway, and DynamoDB.
-- Add OpenTelemetry tracing across API Gateway, Lambda, and DynamoDB.
+- Run optional OSS Grafana in Docker on a small EC2 host and connect it to CloudWatch and X-Ray.
+- Provide OpenTelemetry tracing across API Gateway, Lambda, and DynamoDB.
 - Propagate W3C trace context and correlate trace IDs with Zap logs.
 - Export OpenTelemetry traces through the AWS Lambda OpenTelemetry/ADOT integration to AWS X-Ray.
 - Add trace sampling and avoid collecting sensitive request bodies, passwords, JWTs, or other secrets.

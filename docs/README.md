@@ -27,6 +27,7 @@ Applications running on the host use `http://127.0.0.1:8000`. Applications runni
 Compose is for manual local development. Repository integration tests must use Testcontainers and isolated tables rather than depending on a developer-managed Compose process.
 - [Planning](planning/): epics, user stories, tasks, roadmap, and sprint plans.
 - [Operations](operations/): testing, CI/CD, deployment, and operational procedures.
+- [Observability](operations/observability.md): CloudWatch, X-Ray, and EC2-hosted Grafana operations.
 
 ## Documentation rules
 
