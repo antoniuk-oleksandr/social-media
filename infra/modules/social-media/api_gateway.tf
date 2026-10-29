@@ -1,6 +1,24 @@
 resource "aws_apigatewayv2_api" "http" {
   name          = local.name_prefix
   protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_headers = [
+      "authorization",
+      "content-type",
+      "traceparent",
+      "x-correlation-id",
+      "x-request-id",
+    ]
+    allow_methods = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+    allow_origins = ["http://localhost:8081"]
+    expose_headers = [
+      "traceparent",
+      "x-correlation-id",
+      "x-request-id",
+    ]
+    max_age = 300
+  }
 }
 
 resource "aws_apigatewayv2_integration" "auth" {

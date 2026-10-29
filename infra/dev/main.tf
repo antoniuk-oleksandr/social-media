@@ -31,4 +31,8 @@ module "social_media" {
   github_actions_role_name   = var.github_actions_role_name
   terraform_state_bucket     = var.terraform_state_bucket
   media_bucket_name          = var.media_bucket_name
+  observability_namespace    = var.observability_namespace
+  alarm_actions              = var.alarm_actions
+  adot_layer_arn             = var.adot_layer_arn
+  otel_trace_sample_rate     = var.otel_trace_sample_rate
 }

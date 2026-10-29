@@ -166,3 +166,24 @@ variable "terraform_state_bucket" {
   default     = "social-media-terraform-state-851725490860"
   description = "Existing S3 bucket used by the Terraform backend."
 }
+
+variable "observability_namespace" {
+  type    = string
+  default = "SocialMedia/Observability"
+}
+
+variable "alarm_actions" {
+  type    = list(string)
+  default = []
+}
+
+variable "adot_layer_arn" {
+  type    = string
+  default = "arn:aws:lambda:eu-central-1:901920570463:layer:aws-otel-collector-arm64-ver-0-156-0:4"
+}
+
+variable "otel_trace_sample_rate" {
+  type    = number
+  default = 1.0
+}
+

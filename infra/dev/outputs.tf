@@ -37,3 +37,12 @@ output "ads_cursor_key_parameter" {
 output "github_actions_role_arn" {
   value = module.social_media.github_actions_role_arn
 }
+
+output "observability_dashboard_name" {
+  value = module.social_media.observability_dashboard_name
+}
+
+output "observability_alarm_names" {
+  value = module.social_media.observability_alarm_names
+}
+

@@ -9,6 +9,7 @@ resource "aws_lambda_function" "auth" {
   runtime       = var.lambda_runtime
   architectures = [var.lambda_architecture]
   handler       = "bootstrap"
+  layers        = [var.adot_layer_arn]
 
   filename         = var.lambda_package_path
   source_code_hash = filebase64sha256(var.lambda_package_path)
@@ -23,6 +24,9 @@ resource "aws_lambda_function" "auth" {
       JWT_ISSUER                  = var.jwt_issuer
       JWT_AUDIENCE                = var.jwt_audience
       LOG_LEVEL                   = "info"
+      OTEL_SERVICE_NAME           = local.auth_function
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_trace_sample_rate)
       IAM_POLICY_REVISION         = "2"
       JWT_ACCESS_SECRET_PARAMETER = aws_ssm_parameter.jwt_signing_key.name
       USERS_TABLE                 = aws_dynamodb_table.users.name
@@ -32,6 +36,9 @@ resource "aws_lambda_function" "auth" {
   }
 
   depends_on = [aws_iam_role_policy.auth_lambda]
+  tracing_config {
+    mode = "Active"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "users" {
@@ -45,6 +52,7 @@ resource "aws_lambda_function" "users" {
   runtime       = var.lambda_runtime
   architectures = [var.lambda_architecture]
   handler       = "bootstrap"
+  layers        = [var.adot_layer_arn]
 
   filename         = var.users_lambda_package_path
   source_code_hash = filebase64sha256(var.users_lambda_package_path)
@@ -62,10 +70,16 @@ resource "aws_lambda_function" "users" {
       USERS_TABLE                 = aws_dynamodb_table.users.name
       UNIQUES_TABLE               = aws_dynamodb_table.uniques.name
       LOG_LEVEL                   = "info"
+      OTEL_SERVICE_NAME           = local.users_function
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_trace_sample_rate)
     }
   }
 
   depends_on = [aws_iam_role_policy.users_lambda]
+  tracing_config {
+    mode = "Active"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "posts" {
@@ -79,6 +93,7 @@ resource "aws_lambda_function" "posts" {
   runtime       = var.lambda_runtime
   architectures = [var.lambda_architecture]
   handler       = "bootstrap"
+  layers        = [var.adot_layer_arn]
 
   filename         = var.posts_lambda_package_path
   source_code_hash = filebase64sha256(var.posts_lambda_package_path)
@@ -94,9 +109,15 @@ resource "aws_lambda_function" "posts" {
       JWT_ACCESS_SECRET_PARAMETER = aws_ssm_parameter.jwt_signing_key.name
       POSTS_TABLE                 = aws_dynamodb_table.posts.name
       LOG_LEVEL                   = "info"
+      OTEL_SERVICE_NAME           = local.posts_function
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_trace_sample_rate)
     }
   }
   depends_on = [aws_iam_role_policy.posts_lambda]
+  tracing_config {
+    mode = "Active"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "ads" {
@@ -110,6 +131,7 @@ resource "aws_lambda_function" "ads" {
   runtime          = var.lambda_runtime
   architectures    = [var.lambda_architecture]
   handler          = "bootstrap"
+  layers           = [var.adot_layer_arn]
   filename         = var.ads_lambda_package_path
   source_code_hash = filebase64sha256(var.ads_lambda_package_path)
   memory_size      = var.lambda_memory_mb
@@ -126,9 +148,15 @@ resource "aws_lambda_function" "ads" {
       ADS_CURSOR_KEY_ID           = var.jwt_active_kid
       ADS_TABLE                   = aws_dynamodb_table.ads.name
       LOG_LEVEL                   = "info"
+      OTEL_SERVICE_NAME           = local.ads_function
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_trace_sample_rate)
     }
   }
   depends_on = [aws_iam_role_policy.ads_lambda]
+  tracing_config {
+    mode = "Active"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "feed" {
@@ -142,6 +170,7 @@ resource "aws_lambda_function" "feed" {
   runtime          = var.lambda_runtime
   architectures    = [var.lambda_architecture]
   handler          = "bootstrap"
+  layers           = [var.adot_layer_arn]
   filename         = var.feed_lambda_package_path
   source_code_hash = filebase64sha256(var.feed_lambda_package_path)
   memory_size      = var.lambda_memory_mb
@@ -160,7 +189,13 @@ resource "aws_lambda_function" "feed" {
       POSTS_TABLE                 = aws_dynamodb_table.posts.name
       USERS_TABLE                 = aws_dynamodb_table.users.name
       LOG_LEVEL                   = "info"
+      OTEL_SERVICE_NAME           = local.feed_function
+      OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+      OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_trace_sample_rate)
     }
   }
   depends_on = [aws_iam_role_policy.ads_lambda]
+  tracing_config {
+    mode = "Active"
+  }
 }
